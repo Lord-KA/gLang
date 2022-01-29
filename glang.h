@@ -23,7 +23,7 @@ enum gLang_Node_mode {
     gLang_Node_mode_clBrack,
     gLang_Node_mode_opFigBrack,
     gLang_Node_mode_clFigBrack,
-    gLang_Node_mode_Semicolon,
+    gLang_Node_mode_semicolon,
     gLang_Node_mode_less,
     gLang_Node_mode_great,
     gLang_Node_mode_assign,
@@ -118,6 +118,7 @@ bool gTree_printData(gLang_Node data, FILE *out)
 
 enum gLang_status {
     gLang_status_OK,
+    gLang_status_NothingToDo,
     gLang_status_BadStructPtr,
     gLang_status_TreeErr,
     gLang_status_ObjPoolErr,
@@ -129,12 +130,14 @@ enum gLang_status {
     gLang_status_EmptyTree,
     gLang_status_ParsingErr_UnknownLex,
     gLang_status_ParsingErr_NoBrack,
+    gLang_status_ParsingErr_EmptyOutp,
     gLang_status_DecompositionErr,
     gLang_status_CNT,
 };
 
 static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
         "OK",
+        "Parsing block has not detected the pattern",
         "Bad structure pointer provided",
         "Error in gTree",
         "Error in gObjPool",
@@ -361,44 +364,46 @@ static gLang_status gLang_lexer(gLang *context, const char *buffer)
     return gLang_status_OK;
 }
 
-static gLang_status gLang_parser_gram (gLang *context, size_t subRoot);
+static gLang_status gLang_parser_gram (gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_stmnt(gLang *context, size_t subRoot);
+static gLang_status gLang_parser_stmnt(gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_assig(gLang *context, size_t subRoot);
+static gLang_status gLang_parser_assig(gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_if   (gLang *context, size_t subRoot);
+static gLang_status gLang_parser_if   (gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_expr (gLang *context, size_t subRoot);
+static gLang_status gLang_parser_expr (gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_prior(gLang *context, size_t subRoot);
+static gLang_status gLang_parser_prior(gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_expn (gLang *context, size_t subRoot);
+static gLang_status gLang_parser_expn (gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_term (gLang *context, size_t subRoot);
+static gLang_status gLang_parser_term (gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_var  (gLang *context, size_t subRoot);
+static gLang_status gLang_parser_var  (gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_num  (gLang *context, size_t subRoot);
+static gLang_status gLang_parser_num  (gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_func (gLang *context, size_t subRoot);
+static gLang_status gLang_parser_func (gLang *context, size_t rootId);
 
 
-static gLang_status gLang_parser_gram(gLang *context, size_t subRoot)       //TODO add assertions
+
+static gLang_status gLang_parser_gram(gLang *context, size_t rootId)       //TODO add assertions
 {
     while (context->lexemeCur < context->LexemeIds.len) {
-        GLANG_IS_OK(gLang_parser_stmnt(context, subRoot));
+        GLANG_IS_OK(gLang_parser_stmnt(context, rootId));
     }
     return gLang_status_OK;
 }
 
-static gLang_status gLang_parser_stmnt(gLang *context, size_t subRoot)
+
+static gLang_status gLang_parser_stmnt(gLang *context, size_t rootId)
 {
     size_t *data = context->LexemeIds.data;
     gLang_Node *node = &(GLANG_NODE_BY_ID(data[context->lexemeCur])->data);
     if (node->mode == gLang_Node_mode_opFigBrack) {
         ++context->lexemeCur;
-        GLANG_IS_OK(gLang_parser_stmnt(context, subRoot));
+        GLANG_IS_OK(gLang_parser_stmnt(context, rootId));
         node = &(GLANG_NODE_BY_ID(data[context->lexemeCur])->data)
         if (node->mode == gLang_Node_mode_clFigBrack) {
             ++context->lexemeCur;
@@ -407,9 +412,96 @@ static gLang_status gLang_parser_stmnt(gLang *context, size_t subRoot)
             GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_NoBrack);
         }
     } else {
-        GLANG_IS_OK()       //TODO
+        gLang_status status = gLang_parser_if(context, rootId);
+        if (status == gLang_status_OK)
+            goto finish;
+        else
+            GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
+
+        status = gLang_parser_assig(context, rootId);
+        if (status == gLang_status_OK)
+            goto finish;
+        else
+            GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
+
+        status = gLang_parser_expr(context, rootId);
+        if (status == gLang_status_OK)
+            goto finish;
+        else
+            GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
+
+        node = &(GLANG_NODE_BY_ID(data[context->lexemeCur])->data);
+        if (node->mode == gLang_Node_mode_semicolon) {
+            ++context->lexemeCur;
+        } else {
+            fprintf(context->logStream, "ERROR: no semicolon at the end of the line!\n");   //TODO add position outp
+            GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_NoSemicolon);
+        }
     }
+finish:
     return gLang_status_OK;
+}
+
+
+static gLang_status gLang_parser_assig(gLang *context, size_t rootId)
+{
+    if (context->lexemeCur + 2 >= context->lexemeIds.len)
+        return gLang_status_NothingToDo;
+
+    size_t *data = context->LexemeIds.data;
+    size_t varId = data[context->lexemeCur];
+    gLang_Node *node = &(GLANG_NODE_BY_ID(varId)->data);
+
+    if (node->mode != gLang_Node_mode_var)
+        return gLang_status_NothingToDo;
+
+    size_t assignId = data[context->lexemeCur + 1];
+    node = &(GLANG_NODE_BY_ID(assignId)->data)
+    if (node->mode != gLang_Node_mode_assign)
+        return gLang_status_NothingToDo;
+
+    GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId,   assignId);
+    GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, assignId, varId);
+    context->lexemeCur += 2;
+    gLang_status status = gLang_parser_expr(context, assignId);
+    GLANG_IS_OK(status);
+}
+
+static gLang_status gLang_parser_if(gLang *context, size_t rootId)
+{
+    if (context->lexemeCur + 3 >= context->lexemeIds.len)
+        return gLang_status_NothingToDo;
+
+    size_t *data = context->LexemeIds.data;
+    size_t ifId = data[context->lexemeCur];
+    gLang_Node *node = &(GLANG_NODE_BY_ID(varId)->data);
+
+    if (node->mode != gLang_Node_mode_keyword || node->keyword != gLang_Node_keyword_if)
+        return gLang_status_NothingToDo;
+
+    size_t opBrackId = data[context->lexemeCur + 1];
+    node = &(GLANG_NODE_BY_ID(assignId)->data)
+    GLANG_ASSERT_LOG(node->mode == gLang_Node_mode_opBrack, gLang_status_ParsingErr_NoBrack);
+
+    GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, ifId);
+    context->lexemeCur += 2;
+    GLANG_IS_OK(gLang_parser_expr(context, ifId));
+
+    size_t clBrackId = data[context->lexemeCur];
+    node = &(GLANG_NODE_BY_ID(assignId)->data)
+    GLANG_ASSERT_LOG(node->mode == gLang_Node_mode_clBrack, gLang_status_ParsingErr_NoBrack);
+    context->lexemeCur += 1;
+
+    GLANG_IS_OK(gLang_parser_stmnt(context, ifId));
+
+    return gLang_status_OK;
+}
+
+static gLang_status gLang_parser_expr(gLang *context, size_t rootId)
+{
+    assert(context->lexemeCur < context->lexemeIds.len);
+
+
 }
 
 
@@ -420,8 +512,8 @@ static gLang_status gLang_parser(gLang *context)
 
     GLANG_ASSERT_LOG(len != 0 && len < GLANG_LEX_LIM, gLang_status_EmptyLexer);
 
-    return gLang_parser_gram(context, 0, len, context->tree.root);
+    return gLang_parser_gram(context, 0, len, context->tree.rootId);
 }
 
 
-static gLang_status gLang_optimize(gLang *context, const size_t rootId);
+static gLang_status gLang_optimize(gLang *context, const size_t rootIdId);

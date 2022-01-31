@@ -5,15 +5,22 @@ int main()
     gLang langStruct;
     gLang *ctx = &langStruct;
     gLang_ctor(ctx, stderr);
-    // gLang_lexer(ctx, "main(x){if (f(x, 12 + 1, 4) < 18) return 1;}");
-    gLang_lexer(ctx, "      \
-            main(x)         \
-            {               \
-                a = b + 17 * fuck;          \
-                if (f(a, 12 + 1, 4) < 18)   \
-                    return 1;               \
-            }");
-    // gLang_lexer(ctx, "a - b < 10 / 3 * fuck - 15");
+    char program[] = R"(
+            f(x, y, z)
+            {
+                return x + y + z;
+            }
+            main(x)
+            {
+                a = b + 17 * fuck;
+                if (f(a, 12 + 1, 4) < 18)
+                    while (a > 0)
+                        a = a - 1;
+                return a;
+            })";
+    size_t len = strlen(program);
+    fprintf(stderr, "len = %lu\n", len);
+    gLang_lexer(ctx, program);
     FILE *out = fopen("before.gv", "w");
     gTree_dumpPoolGraphViz(&ctx->tree, out);
     fclose(out);

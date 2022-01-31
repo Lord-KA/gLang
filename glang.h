@@ -65,6 +65,7 @@ enum gLang_Node_keyword {
     gLang_Node_keyword_if,
     gLang_Node_keyword_else,
     gLang_Node_keyword_return,
+    gLang_Node_keyword_while,
     gLang_Node_keyword_CNT,
 };
 
@@ -72,6 +73,7 @@ static const char gLang_Node_keywordView[gLang_Node_keyword_CNT][GLANG_MAX_LIT_L
         "if",
         "else",
         "return",
+        "while",
     };
 
 struct gLang_Node
@@ -203,7 +205,6 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
     gTree_Node *macroNode = NULL;                                                               \
     GLANG_ASSERT_LOG(gObjPool_alloc(&context->tree.pool, &macroId) == gObjPool_status_OK,        \
                             gLang_status_ObjPoolErr);                                             \
-    fprintf(stderr, "POOL_ALLOC allocated Node %lu\n", macroId);                                   \
     GLANG_ASSERT_LOG(gObjPool_get(&context->tree.pool, macroId, &macroNode) == gObjPool_status_OK, \
                             gLang_status_ObjPoolErr);                                               \
     macroNode->sibling = -1;                                                                         \
@@ -218,9 +219,8 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 #define GLANG_POOL_FREE(id)
 #else
 #define GLANG_POOL_FREE(macroId) ({                                                          \
-    fprintf(stderr, "POOL_FREE freed Node %lu\n", macroId);                                   \
-    GLANG_ASSERT_LOG(gObjPool_free(&context->tree.pool, macroId) == gObjPool_status_OK,        \
-                            gLang_status_ObjPoolErr);                                      \
+    GLANG_ASSERT_LOG(gObjPool_free(&context->tree.pool, macroId) == gObjPool_status_OK,       \
+                            gLang_status_ObjPoolErr);                                          \
 })
 #endif
 
@@ -424,8 +424,11 @@ static gLang_status gLang_parser_term (gLang *context, size_t rootId);
 
 static gLang_status gLang_parser_func (gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_ret  (gLang *context, size_t rootId);
+static gLang_status gLang_parser_while(gLang *context, size_t rootId);
 
+static gLang_status gLang_parser_blk  (gLang *context, size_t rootId);
+
+static gLang_status gLang_parser_ret  (gLang *context, size_t rootId);
 
 #define GLANG_PARSER_CHECK() ({\
     fprintf(stderr, "%s curLit = %lu\n", __func__, GLANG_CUR_NODE_ID());\
@@ -445,25 +448,12 @@ static gLang_status gLang_parser_funcDef(gLang *context, size_t rootId)
         else
             lastChildId = GLANG_NODE_BY_ID(lastChildId)->sibling;
 
-        gLang_Node *node = GLANG_CUR_NODE();
-        fprintf(stderr, "FUNC_DEF 1 curNode = %lu\n", GLANG_CUR_NODE_ID());
-        GLANG_ASSERT_LOG(node != NULL && node->mode == gLang_Node_mode_opFigBrack, gLang_status_ParsingErr_NoBrack);
-        GLANG_POOL_FREE(GLANG_CUR_NODE_ID());
-        context->lexemeCur += 1;
-        fprintf(stderr, "lastChildId = %lu\n", lastChildId);
-        fprintf(stderr, "FUNC_DEF 2 curNode = %lu\n", GLANG_CUR_NODE_ID());
-        GLANG_IS_OK(gLang_parser_gram(context, lastChildId));
-
-        node = GLANG_CUR_NODE();
-        fprintf(stderr, "FUNC_DEF 3 curNode = %lu\n", GLANG_CUR_NODE_ID());
-        GLANG_ASSERT_LOG(node != NULL && node->mode == gLang_Node_mode_clFigBrack, gLang_status_ParsingErr_NoBrack);
-        GLANG_POOL_FREE(GLANG_CUR_NODE_ID());
-        context->lexemeCur += 1;
+        GLANG_IS_OK(gLang_parser_blk(context, lastChildId));
     }
     return gLang_status_OK;
 }
 
-static gLang_status gLang_parser_gram(gLang *context, size_t rootId)       //TODO add assertions; change assert to ASSERT_LOG
+static gLang_status gLang_parser_gram(gLang *context, size_t rootId)
 {
     GLANG_PARSER_CHECK();
     gLang_status status = gLang_status_OK;
@@ -482,48 +472,47 @@ static gLang_status gLang_parser_stmnt(gLang *context, size_t rootId)
     GLANG_PARSER_CHECK();
     size_t *data = context->LexemeIds.data;
     gLang_Node *node = GLANG_CUR_NODE();
-    if (node->mode == gLang_Node_mode_opFigBrack) {
-        GLANG_POOL_FREE(GLANG_CUR_NODE_ID());
-        ++context->lexemeCur;
-        GLANG_IS_OK(gLang_parser_stmnt(context, rootId));
-        node = &(GLANG_NODE_BY_ID(data[context->lexemeCur])->data);
-        if (node->mode == gLang_Node_mode_clFigBrack) {
-            GLANG_POOL_FREE(GLANG_CUR_NODE_ID());
-            ++context->lexemeCur;
-        } else {
-            fprintf(context->logStream, "ERROR: no closing figure brack for statement!\n");
-            GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_NoBrack);
-        }
-    } else {
-        fprintf(stderr, "STMNT 0 curNode = %lu\n", GLANG_CUR_NODE_ID());
-        gLang_status status = gLang_parser_if(context, rootId);
-        if (status == gLang_status_OK)
-            goto finish;
-        else
-            GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
 
-        status = gLang_parser_ret(context, rootId);
-        if (status == gLang_status_OK) {        //TODO
-            goto semicolon_check;
-        }
-        else
-            GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
+    fprintf(stderr, "STMNT 0 curNode = %lu\n", GLANG_CUR_NODE_ID());
+    gLang_status status = gLang_parser_if(context, rootId);
+    if (status == gLang_status_OK)
+        goto finish;
+    else
+        GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
 
-        status = gLang_parser_assig(context, rootId);
-        if (status == gLang_status_OK)
-            goto semicolon_check;
-        else
-            GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
+    status = gLang_parser_while(context, rootId);
+    if (status == gLang_status_OK)
+        return gLang_status_OK;
+    else
+        GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
 
-        status = gLang_parser_expr(context, rootId);
-        if (status == gLang_status_OK)
-            goto semicolon_check;
-        else
-            GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
+    status = gLang_parser_ret(context, rootId);
+    if (status == gLang_status_OK)
+        goto finish;
+    else
+        GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
 
-        return gLang_status_NothingToDo;
-    }
-semicolon_check:
+    status = gLang_parser_assig(context, rootId);
+    if (status == gLang_status_OK)
+        goto finish;
+    else
+        GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
+
+    status = gLang_parser_blk(context, rootId);
+    if (status == gLang_status_OK)
+        return gLang_status_OK;
+    else
+        GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
+
+    status = gLang_parser_expr(context, rootId);
+    if (status == gLang_status_OK)
+        goto finish;
+    else
+        GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
+
+    return gLang_status_NothingToDo;
+
+finish:
     fprintf(stderr, "STMNT 3 curNode = %lu\n", GLANG_CUR_NODE_ID());
     node = GLANG_CUR_NODE();
     if (node->mode == gLang_Node_mode_semicolon) {
@@ -533,7 +522,6 @@ semicolon_check:
         fprintf(context->logStream, "ERROR: no semicolon at the end of the line!\n");   //TODO add position outp
         GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_NoSemicolon);
     }
-finish:
     return gLang_status_OK;
 }
 
@@ -605,7 +593,13 @@ static gLang_status gLang_parser_expr(gLang *context, size_t rootId)
 
     size_t tmpId = GLANG_POOL_ALLOC();
 
-    GLANG_IS_OK(gLang_parser_cmp(context, tmpId));
+    gLang_status status = gLang_parser_cmp(context, tmpId);
+    if (status == gLang_status_NothingToDo) {
+        GLANG_POOL_FREE(tmpId);
+        return status;
+    } else {
+        GLANG_IS_OK(status);
+    }
 
     if (context->lexemeCur < context->LexemeIds.len &&
             GLANG_CUR_NODE()->mode >= gLang_Node_mode_less && GLANG_CUR_NODE()->mode < gLang_Node_mode_assign) {
@@ -629,7 +623,13 @@ static gLang_status gLang_parser_cmp(gLang *context, size_t rootId)
     size_t sumId = GLANG_POOL_ALLOC();
     GLANG_NODE_BY_ID(sumId)->data.mode = gLang_Node_mode_sum;
 
-    GLANG_IS_OK(gLang_parser_term(context, sumId));
+    gLang_status status = gLang_parser_term(context, sumId);
+    if (status == gLang_status_NothingToDo) {
+        GLANG_POOL_FREE(sumId);
+        return status;
+    } else {
+        GLANG_IS_OK(status);
+    }
 
     gLang_Node *node = GLANG_CUR_NODE();
     while (node != NULL && (node->mode == gLang_Node_mode_sum || node->mode == gLang_Node_mode_sub)) {
@@ -669,7 +669,13 @@ static gLang_status gLang_parser_term(gLang *context, size_t rootId)
     size_t mulId = GLANG_POOL_ALLOC();
     GLANG_NODE_BY_ID(mulId)->data.mode = gLang_Node_mode_mul;
 
-    GLANG_IS_OK(gLang_parser_expn(context, mulId));
+    gLang_status status = gLang_parser_expn(context, mulId);
+    if (status == gLang_status_NothingToDo) {
+        GLANG_POOL_FREE(mulId);
+        return status;
+    } else {
+        GLANG_IS_OK(status);
+    }
 
     gLang_Node *node = GLANG_CUR_NODE();
     while (node != NULL && (node->mode == gLang_Node_mode_mul || node->mode == gLang_Node_mode_div)) {
@@ -709,7 +715,13 @@ static gLang_status gLang_parser_expn(gLang *context, size_t rootId)
     size_t expId = GLANG_POOL_ALLOC();
     GLANG_NODE_BY_ID(expId)->data.mode = gLang_Node_mode_exp;
 
-    GLANG_IS_OK(gLang_parser_prior(context, expId));
+    gLang_status status = gLang_parser_prior(context, expId);
+    if (status == gLang_status_NothingToDo) {
+        GLANG_POOL_FREE(expId);
+        return status;
+    } else {
+        GLANG_IS_OK(status);
+    }
 
     gLang_Node *node = GLANG_CUR_NODE();
     if (node != NULL && node->mode == gLang_Node_mode_exp) {
@@ -800,6 +812,32 @@ static gLang_status gLang_parser_func(gLang *context, size_t rootId)
     return gLang_status_OK;
 }
 
+static gLang_status gLang_parser_blk  (gLang *context, size_t rootId)
+{
+    GLANG_PARSER_CHECK();
+    gLang_Node *node = GLANG_CUR_NODE();
+
+    GLANG_ASSERT_LOG(node != NULL, gLang_status_ParsingErr_EmptyOutp);
+
+    size_t funcId = GLANG_CUR_NODE_ID();
+
+    if (node->mode != gLang_Node_mode_opFigBrack)
+        return gLang_status_NothingToDo;
+
+    GLANG_POOL_FREE(GLANG_CUR_NODE_ID());
+    ++context->lexemeCur;
+
+    GLANG_IS_OK(gLang_parser_gram(context, rootId));
+
+    node = GLANG_CUR_NODE();
+    GLANG_ASSERT_LOG(node != NULL && node->mode == gLang_Node_mode_clFigBrack, gLang_status_ParsingErr_NoBrack);
+    GLANG_POOL_FREE(GLANG_CUR_NODE_ID());
+    ++context->lexemeCur;
+
+    return gLang_status_OK;
+}
+
+
 static gLang_status gLang_parser_ret(gLang *context, size_t rootId)
 {
     GLANG_PARSER_CHECK();
@@ -817,6 +855,39 @@ static gLang_status gLang_parser_ret(gLang *context, size_t rootId)
 
     GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, retId));
 
+    return gLang_status_OK;
+}
+
+static gLang_status gLang_parser_while(gLang *context, size_t rootId)
+{
+    GLANG_PARSER_CHECK();
+    if (context->lexemeCur + 3 >= context->LexemeIds.len)
+        return gLang_status_NothingToDo;
+
+    size_t whileId = GLANG_CUR_NODE_ID();
+    gLang_Node *node = GLANG_CUR_NODE();
+
+    if (node->mode != gLang_Node_mode_keyword || node->keyword != gLang_Node_keyword_while)
+        return gLang_status_NothingToDo;
+
+    context->lexemeCur += 1;
+    size_t opBrackId = GLANG_CUR_NODE_ID();
+    node = GLANG_CUR_NODE();
+    GLANG_ASSERT_LOG(node->mode == gLang_Node_mode_opBrack, gLang_status_ParsingErr_NoBrack);
+
+    GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, whileId));
+    context->lexemeCur += 1;
+    GLANG_IS_OK(gLang_parser_expr(context, whileId));
+
+    size_t clBrackId = GLANG_CUR_NODE_ID();
+    node = GLANG_CUR_NODE();
+    GLANG_ASSERT_LOG(node->mode == gLang_Node_mode_clBrack, gLang_status_ParsingErr_NoBrack);
+    context->lexemeCur += 1;
+
+    GLANG_IS_OK(gLang_parser_stmnt(context, whileId));
+
+    GLANG_POOL_FREE(opBrackId);
+    GLANG_POOL_FREE(clBrackId);
     return gLang_status_OK;
 }
 

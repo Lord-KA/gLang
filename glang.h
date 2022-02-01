@@ -167,7 +167,11 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
         "UNKNOWN ERROR CODE!",
     };
 
-#ifndef NLOGS               //TODO
+/*
+ * WARNING: do not forget to undef new macro
+ */
+
+#ifndef NLOGS
 #define GLANG_ASSERT_LOG(expr, errCode) ({                                           \
         bool macroRes = expr;                                                         \
         if (!macroRes && errCode >= gLang_status_ParsingErr_UnknownLex && errCode <= gLang_status_ParsingErr_NoSemicolon)\
@@ -213,10 +217,9 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
     macroId;                                                                                            \
 })
 
-// #define NO_FREE //TODO
 
-#ifdef NO_FREE
-#define GLANG_POOL_FREE(id)
+#ifdef GLANG_NO_FREE
+#define GLANG_POOL_FREE(macroId)
 #else
 #define GLANG_POOL_FREE(macroId) ({                                                          \
     GLANG_ASSERT_LOG(gObjPool_free(&context->tree.pool, macroId) == gObjPool_status_OK,       \
@@ -233,18 +236,26 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 
 #define GLANG_IS_DELIM(macroCur) (*macroCur == '\0' || isspace(*macroCur) || strnConsistsChrs(macroCur, GLANG_DELIMS_LIST, 1, strlen(GLANG_DELIMS_LIST)))
 
-#define GLANG_CUR_NODE() ({                                                                     \
-    gLang_Node *macroNode = NULL;                                                                     \
-    if (context->lexemeCur < context->LexemeIds.len)                                            \
-        macroNode = &(GLANG_NODE_BY_ID(context->LexemeIds.data[context->lexemeCur])->data);          \
-    macroNode;                                                                                       \
+#define GLANG_CUR_NODE() ({                                                                         \
+    gLang_Node *macroNode = NULL;                                                                    \
+    if (context->lexemeCur < context->LexemeIds.len)                                                  \
+        macroNode = &(GLANG_NODE_BY_ID(context->LexemeIds.data[context->lexemeCur])->data);            \
+    macroNode;                                                                                          \
 })
 
-#define GLANG_CUR_NODE_ID() ({                                                                     \
+#define GLANG_CUR_NODE_ID() ({                                                                      \
     size_t macroNodeId = -1;                                                                         \
-    if (context->lexemeCur < context->LexemeIds.len)                                                    \
-        macroNodeId = context->LexemeIds.data[context->lexemeCur];                                  \
-    macroNodeId;                                                                                           \
+    if (context->lexemeCur < context->LexemeIds.len)                                                  \
+        macroNodeId = context->LexemeIds.data[context->lexemeCur];                                     \
+    macroNodeId;                                                                                        \
+})
+
+#define GLANG_PARSER_CHECK() ({                                                                 \
+    fprintf(stderr, "%s curLit = %lu\n", __func__, GLANG_CUR_NODE_ID());                         \
+    GLANG_CHECK_SELF_PTR(context);                                                                \
+    GLANG_ID_CHECK(rootId);                                                                        \
+    GLANG_ASSERT_LOG(rootId != -1, gLang_status_ParsingErr_BadRootId);                              \
+    GLANG_ASSERT_LOG(context->lexemeCur < context->LexemeIds.len, gLang_status_ParsingErr_BadCur);   \
 })
 
 
@@ -354,7 +365,7 @@ static gLang_status gLang_lexer(gLang *context, const char *buffer)
                 node->value = strtod(literal, NULL);
             } else {
                 node->mode = gLang_Node_mode_unknown;
-                fprintf(stderr, "ERROR: bad function/variable name; it should not start with a digit!\n");
+                fprintf(context->logStream, "ERROR: bad function/variable name; it should not start with a digit!\n");
                 GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_UnknownLex);
             }
         } else {
@@ -372,7 +383,7 @@ static gLang_status gLang_lexer(gLang *context, const char *buffer)
             for (size_t i = 0; i < GLANG_MAX_LIT_LEN && literal[i] != '\0'; ++i) {
                 if (!(isdigit(literal[i]) || literal[i] == '_' || isalpha(literal[i]))) {
                     node->mode = gLang_Node_mode_unknown;
-                    fprintf(stderr, "ERROR: bad function/variable name; it should only contain letters, digits and '_'!\n");
+                    fprintf(context->logStream, "ERROR: bad function/variable name; it should only contain letters, digits and '_'!\n");
                     GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_UnknownLex);
                 }
             }
@@ -430,12 +441,6 @@ static gLang_status gLang_parser_blk  (gLang *context, size_t rootId);
 
 static gLang_status gLang_parser_ret  (gLang *context, size_t rootId);
 
-#define GLANG_PARSER_CHECK() ({\
-    fprintf(stderr, "%s curLit = %lu\n", __func__, GLANG_CUR_NODE_ID());\
-    GLANG_CHECK_SELF_PTR(context);\
-    GLANG_ASSERT_LOG(rootId != -1, gLang_status_ParsingErr_BadRootId);\
-    GLANG_ASSERT_LOG(context->lexemeCur < context->LexemeIds.len, gLang_status_ParsingErr_BadCur);   \
-})
 
 static gLang_status gLang_parser_funcDef(gLang *context, size_t rootId)
 {
@@ -458,9 +463,7 @@ static gLang_status gLang_parser_gram(gLang *context, size_t rootId)
     GLANG_PARSER_CHECK();
     gLang_status status = gLang_status_OK;
     while (status != gLang_status_NothingToDo) {
-        fprintf(stderr, "GRAM 1 curNode = %lu\n", GLANG_CUR_NODE_ID());
         status = gLang_parser_stmnt(context, rootId);
-        fprintf(stderr, "GRAM 2 curNode = %lu\n", GLANG_CUR_NODE_ID());
         GLANG_ASSERT_LOG(status == gLang_status_OK || status == gLang_status_NothingToDo, status);
     }
     return gLang_status_OK;
@@ -473,10 +476,9 @@ static gLang_status gLang_parser_stmnt(gLang *context, size_t rootId)
     size_t *data = context->LexemeIds.data;
     gLang_Node *node = GLANG_CUR_NODE();
 
-    fprintf(stderr, "STMNT 0 curNode = %lu\n", GLANG_CUR_NODE_ID());
     gLang_status status = gLang_parser_if(context, rootId);
     if (status == gLang_status_OK)
-        goto finish;
+        return gLang_status_OK;
     else
         GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
 
@@ -513,7 +515,6 @@ static gLang_status gLang_parser_stmnt(gLang *context, size_t rootId)
     return gLang_status_NothingToDo;
 
 finish:
-    fprintf(stderr, "STMNT 3 curNode = %lu\n", GLANG_CUR_NODE_ID());
     node = GLANG_CUR_NODE();
     if (node->mode == gLang_Node_mode_semicolon) {
         GLANG_POOL_FREE(GLANG_CUR_NODE_ID());
@@ -754,17 +755,13 @@ static gLang_status gLang_parser_prior(gLang *context, size_t rootId)
         GLANG_POOL_FREE(GLANG_CUR_NODE_ID());
         context->lexemeCur += 1;
     } else if (node->mode == gLang_Node_mode_num || node->mode == gLang_Node_mode_var) {
-        fprintf(stderr, "PRIOR 1 curNode = %lu\n", GLANG_CUR_NODE_ID());
         GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, GLANG_CUR_NODE_ID()));
         context->lexemeCur += 1;
     } else if (node->mode == gLang_Node_mode_func) {
-        fprintf(stderr, "FUNC call\n");
         GLANG_IS_OK(gLang_parser_func(context, rootId));
     } else {
         return gLang_status_NothingToDo;
     }
-
-    fprintf(stderr, "PRIOR 2 curNode = %lu\n", GLANG_CUR_NODE_ID());
     return gLang_status_OK;
 }
 
@@ -902,3 +899,5 @@ static gLang_status gLang_parser(gLang *context)
 
     return gLang_status_OK;
 }
+
+#include "undefs.h"

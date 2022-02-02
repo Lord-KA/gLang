@@ -82,6 +82,7 @@ struct gLang_Node
     gLang_Node_keyword keyword;
     char funcName[GLANG_MAX_LIT_LEN];
     char  varName[GLANG_MAX_LIT_LEN];
+    size_t varId;                         /* To be filled by compiler; Id of a first node with same var in func */
     double value;
     size_t position;
 } typedef gLang_Node;
@@ -130,6 +131,7 @@ enum gLang_status {
     gLang_status_BadStructPtr,
     gLang_status_TreeErr,
     gLang_status_ObjPoolErr,
+    gLang_status_AllocErr,
     gLang_status_FileErr,
     gLang_status_BadPtr,
     gLang_status_BadId,
@@ -152,6 +154,7 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
         "Bad structure pointer provided",
         "Error in gTree",
         "Error in gObjPool",
+        "Error during allocation, ran out of memory?",
         "Error in file IO",
         "Bad pointer provided",
         "Bad node id provided",
@@ -260,11 +263,16 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 
 
 struct gLang {
-    gTree          tree      = {};
-    FILE          *logStream = {};
+    gTree       tree      = {};
+    FILE       *logStream = {};
+    FILE       *asmOut    = {};
+    const char *buffer    = {};
+    size_t      labelCnt  = {};
     GENERIC(stack) LexemeIds = {};
     size_t         lexemeCur = {};
-    const char    *buffer    = {};
+    GENERIC(stack) *varTables    = {};
+    size_t          varTablesCur = {};
+    size_t          varTablesLen = {};
 } typedef gLang;
 
 
@@ -280,7 +288,10 @@ static gLang_status gLang_ctor(gLang *context, FILE *newLogStream)
         return gLang_status_BadStructPtr;
     }
 
+    context->varTables = NULL;
+    context->buffer    = NULL;
     context->logStream = stderr;
+
     if (gPtrValid(newLogStream))
         context->logStream = newLogStream;
 
@@ -299,6 +310,14 @@ static gLang_status gLang_dtor(gLang *context)
     GLANG_TREE_CHECK(gTree_dtor(&context->tree));
 
     GENERIC(stack_dtor)(&context->LexemeIds);
+
+    if (gPtrValid(context->varTables)) {
+        for (size_t i = 0; i < context->varTablesLen; ++i) {
+            GENERIC(stack_dtor)(&context->varTables[i]);
+        }
+        free(context->varTables);
+        context->varTables = NULL;
+    }
 
     return gLang_status_OK;
 }
@@ -896,6 +915,491 @@ static gLang_status gLang_parser(gLang *context)
 
     GLANG_ASSERT_LOG(len != 0 && len < GLANG_LEX_LIM, gLang_status_EmptyLexer);
     GLANG_IS_OK(gLang_parser_funcDef(context, context->tree.root));
+
+    return gLang_status_OK;
+}
+
+gLang_status gLang_optimize(gLang *context, const size_t rootId)    //TODO fix for gLang specifics
+{
+    GLANG_CHECK_SELF_PTR(context);
+    GLANG_ID_CHECK(rootId);
+
+    size_t childId = GLANG_NODE_BY_ID(rootId)->child;
+
+    while (childId != -1) {
+        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        gLang_optimize(context, childId);
+        childId = siblingId;
+    }
+
+    gTree_Node *node = GLANG_NODE_BY_ID(rootId);
+    gTree_Node *child = NULL;
+    childId = GLANG_NODE_BY_ID(rootId)->child;
+
+    if (node->data.mode == gLang_Node_mode_mul) {
+        double mulNum = 1;
+        double powVar = 0;
+        bool calculable = true;
+        while (childId != -1) {
+            child = GLANG_NODE_BY_ID(childId);
+            size_t siblingId = child->sibling;
+            if (child->data.mode == gLang_Node_mode_num) {
+                mulNum *= child->data.value;
+                GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
+            } else {
+                calculable = false;
+                if (child->data.mode == gLang_Node_mode_var) {
+                    powVar += 1;
+                    GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
+                } else if (child->data.mode == gLang_Node_mode_exp) {
+                    size_t subChildId = child->child;
+                    gTree_Node *subChild = GLANG_NODE_BY_ID(subChildId);
+                    size_t subSiblingId = subChild->sibling;
+                    gTree_Node *subSibling = GLANG_NODE_BY_ID(subSiblingId);
+
+                    if (subSibling->sibling == -1 &&
+                            subChild->data.mode == gLang_Node_mode_var && subSibling->data.mode == gLang_Node_mode_num) {
+                        powVar += subSibling->data.value;
+                        GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
+                    }
+
+                }
+            }
+            childId = siblingId;
+        }
+
+        if (calculable || (fabs(mulNum) < GLANG_EPS)) {
+            size_t numNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
+            numNode->data.mode  = gLang_Node_mode_num;
+            numNode->data.value = mulNum;
+            GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, numNodeId));
+            GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, rootId));
+
+            return gLang_status_OK;
+        } else if ((fabs(mulNum - 1) > GLANG_EPS)) {
+            size_t numNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
+            numNode->data.mode  = gLang_Node_mode_num;
+            numNode->data.value = mulNum;
+            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, numNodeId));
+        }
+
+        if (fabs(powVar - 1) < GLANG_EPS) {
+            size_t varNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *varNode = GLANG_NODE_BY_ID(varNodeId);
+            varNode->data.mode  = gLang_Node_mode_var;
+            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, varNodeId));
+        } else if (fabs(powVar) > GLANG_EPS) {
+            size_t expNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *expNode = GLANG_NODE_BY_ID(expNodeId);
+            expNode->data.mode  = gLang_Node_mode_exp;
+
+            size_t varNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *varNode = GLANG_NODE_BY_ID(varNodeId);
+            varNode->data.mode  = gLang_Node_mode_var;
+
+            size_t numNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
+            numNode->data.mode  = gLang_Node_mode_num;
+            numNode->data.value = powVar;
+
+            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, expNodeId, varNodeId));
+            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, expNodeId, numNodeId));
+            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId,    expNodeId));
+        }
+    } else if (node->data.mode == gLang_Node_mode_sum) {
+        double sumNum = 0;
+        double sumVar = 0;
+        bool calculable = true;
+        while (childId != -1) {
+            child = GLANG_NODE_BY_ID(childId);
+            size_t siblingId = child->sibling;
+            if (child->data.mode == gLang_Node_mode_num) {
+                sumNum += child->data.value;
+                GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
+            } else {
+                calculable = false;
+                if (child->data.mode == gLang_Node_mode_var) {
+                    sumVar += 1;
+                    GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
+                } else if (child->data.mode == gLang_Node_mode_mul) {
+                    size_t subChildId = child->child;
+                    gTree_Node *subChild = GLANG_NODE_BY_ID(subChildId);
+                    size_t subSiblingId = subChild->sibling;
+                    gTree_Node *subSibling = GLANG_NODE_BY_ID(subSiblingId);
+
+                    if (subSibling->sibling == -1 && (
+                            (subChild->data.mode == gLang_Node_mode_var && subSibling->data.mode == gLang_Node_mode_num) ||
+                            (subChild->data.mode == gLang_Node_mode_num && subSibling->data.mode == gLang_Node_mode_var))) {
+                        if (subChild->data.mode == gLang_Node_mode_num)
+                            sumVar += subChild->data.value;
+                        else
+                            sumVar += subSibling->data.value;
+                        GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
+                    }
+                }
+            }
+            childId = siblingId;
+        }
+        if (calculable) {
+            size_t numNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
+            numNode->data.mode  = gLang_Node_mode_num;
+            numNode->data.value = sumNum;
+            GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, numNodeId));
+            GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, rootId));
+
+            return gLang_status_OK;
+        } else if (fabs(sumNum) > GLANG_EPS) {
+            size_t numNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
+            numNode->data.mode  = gLang_Node_mode_num;
+            numNode->data.value = sumNum;
+            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, numNodeId));
+        }
+
+        if (fabs(sumVar - 1) < GLANG_EPS) {
+            size_t varNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *varNode = GLANG_NODE_BY_ID(varNodeId);
+            varNode->data.mode  = gLang_Node_mode_var;
+            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, varNodeId));
+        } else if (fabs(sumVar) > GLANG_EPS) {
+            size_t mulNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *mulNode = GLANG_NODE_BY_ID(mulNodeId);
+            mulNode->data.mode  = gLang_Node_mode_mul;
+
+            size_t varNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *varNode = GLANG_NODE_BY_ID(varNodeId);
+            varNode->data.mode  = gLang_Node_mode_var;
+
+            size_t numNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
+            numNode->data.mode  = gLang_Node_mode_num;
+            numNode->data.value = sumVar;
+
+            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, mulNodeId, varNodeId));
+            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, mulNodeId, numNodeId));
+            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId,    mulNodeId));
+        }
+        /*                                                      //TODO add conversion to Sub case when convinient
+        childId = GLANG_NODE_BY_ID(rootId)->child;
+        siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        if (siblingId != -1) {
+            sibling = GLANG_NODE_BY_ID(siblingId);
+            if (sibling->sibling == -1) {
+                if (sibling->data.mode == gLang_Node_mode_mul || gLang_Node_mode_num)
+            }
+        }
+        */
+
+    } else if (node->data.mode == gLang_Node_mode_sub) {
+        GLANG_ID_CHECK(childId);
+        gTree_Node *child = GLANG_NODE_BY_ID(childId);
+        size_t siblingId = child->sibling;
+        GLANG_ID_CHECK(siblingId);
+        gTree_Node *sibling = GLANG_NODE_BY_ID(siblingId);
+
+        if (child->data.mode == gLang_Node_mode_num &&
+                sibling->data.mode == gLang_Node_mode_num) {
+            double res = child->data.value - sibling->data.value;
+            size_t numNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
+            numNode->data.mode  = gLang_Node_mode_num;
+            numNode->data.value = res;
+            GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, numNodeId));
+            GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, rootId));
+        }
+    } else if (node->data.mode == gLang_Node_mode_div) {
+        GLANG_ID_CHECK(childId);
+        gTree_Node *child = GLANG_NODE_BY_ID(childId);
+        size_t siblingId = child->sibling;
+        GLANG_ID_CHECK(siblingId);
+        gTree_Node *sibling = GLANG_NODE_BY_ID(siblingId);
+
+        if (child->data.mode == gLang_Node_mode_num &&
+                sibling->data.mode == gLang_Node_mode_num) {
+            double res = child->data.value / sibling->data.value;
+            size_t numNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
+            numNode->data.mode  = gLang_Node_mode_num;
+            numNode->data.value = res;
+            GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, numNodeId));
+            GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, rootId));
+        } else if (sibling->data.mode == gLang_Node_mode_num && sibling->data.value == 1) {
+            child->sibling = -1;
+            GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, childId));
+            GLANG_POOL_FREE(rootId);
+            GLANG_POOL_FREE(siblingId);
+        }
+    }
+    node = GLANG_NODE_BY_ID(rootId);
+    if ((node->data.mode == gLang_Node_mode_mul) || (node->data.mode == gLang_Node_mode_sum)) {
+        const gLang_Node_mode mode = node->data.mode;
+        childId = node->child;
+        size_t siblingId = -1;
+        while (childId != -1) {
+            gTree_Node *child = GLANG_NODE_BY_ID(childId);
+            siblingId = child->sibling;
+            if (child->data.mode == mode) {
+                size_t subChildId = child->child;
+                while (subChildId != -1) {
+                    size_t subSiblingId = GLANG_NODE_BY_ID(subChildId)->sibling;
+                    GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, subChildId));
+                    subChildId = subSiblingId;
+                }
+                child = GLANG_NODE_BY_ID(childId);
+                child->child = -1;
+                GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
+            }
+            childId = siblingId;
+        }
+    }
+    return gLang_status_OK;
+}
+
+
+gLang_status gLang_fillVarTable(gLang *context, size_t rootId)
+{
+    GLANG_CHECK_SELF_PTR(context);
+    GLANG_ID_CHECK(rootId);
+    GLANG_ASSERT_LOG(gPtrValid(context->varTables), gLang_status_BadPtr);
+
+    GENERIC(stack) *varStack = &(context->varTables[context->varTablesCur]);
+    GLANG_ASSERT_LOG(gPtrValid(varStack), gLang_status_BadPtr);
+
+    gLang_Node *node = &GLANG_NODE_BY_ID(rootId)->data;
+    if (node->mode == gLang_Node_mode_var) {
+        size_t i = 0;
+        for (i = 0; i < varStack->len; ++i) {
+            size_t varId = varStack->data[i];
+            if (!strcmp(node->varName, GLANG_NODE_BY_ID(varId)->data.varName))
+                break;
+        }
+        if (i == varStack->len)
+            GENERIC(stack_push)(varStack, rootId);
+        node->varId = i;
+    }
+
+    size_t childId = GLANG_NODE_BY_ID(rootId)->child;
+    while (childId != -1) {
+        gLang_fillVarTable(context, childId);
+        childId = GLANG_NODE_BY_ID(childId)->sibling;
+    }
+    return gLang_status_OK;
+}
+
+gLang_status gLang_compileStmnt(gLang *context, size_t rootId);
+
+gLang_status gLang_compileExpr(gLang *context, size_t rootId)       //TODO add GLANG_IS_OK here and below
+{
+    GLANG_CHECK_SELF_PTR(context);
+    GLANG_ID_CHECK(rootId);
+
+    gLang_Node *node = &GLANG_NODE_BY_ID(rootId)->data;
+    FILE *out = context->asmOut;
+    size_t childId = GLANG_NODE_BY_ID(rootId)->child;
+
+    if (node->mode == gLang_Node_mode_num) {
+        fprintf(out, "mov ra, %g\n", node->value);    //TODO check value type
+
+    } else if (node->mode == gLang_Node_mode_var) {
+        fprintf(out, "mov ra, [__VARS__ + rf - %lu]; (%s)\n", node->varId, node->varName);
+
+    } else if (node->mode == gLang_Node_mode_sum) {
+        fprintf(out, "mov rb, 0\n");
+        while (childId != -1) {
+            GLANG_IS_OK(gLang_compileExpr(context, childId));
+            fprintf(out, "sum rb, ra\n");
+            childId = GLANG_NODE_BY_ID(childId)->sibling;
+        }
+        fprintf(out, "mov ra, rb\n");
+
+    } else if (node->mode == gLang_Node_mode_sub) {
+        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "mov rb, ra\n");
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "sub rb, ra\n");
+        fprintf(out, "mov ra, rb\n");
+
+    } else if (node->mode == gLang_Node_mode_mul) {
+        fprintf(out, "mov rb, 0\n");
+        while (childId != -1) {
+            GLANG_IS_OK(gLang_compileExpr(context, childId));
+            fprintf(out, "mul rb, ra\n");
+            childId = GLANG_NODE_BY_ID(childId)->sibling;
+        }
+        fprintf(out, "mov ra, rb\n");
+
+    } else if (node->mode == gLang_Node_mode_div) {
+        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "mov rb, ra\n");
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "div rb, ra\n");
+        fprintf(out, "mov ra, rb\n");
+
+    } else if (node->mode == gLang_Node_mode_exp) {
+        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "mov rb, ra\n");
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "pow rb, ra\n");
+        fprintf(out, "mov ra, rb\n");
+    } else if (node->mode == gLang_Node_mode_func) {
+        childId = GLANG_NODE_BY_ID(childId)->child;
+        while (childId != -1) {
+            GLANG_IS_OK(gLang_compileExpr(context, childId));
+            fprintf(out, "push ra\n");
+            childId = GLANG_NODE_BY_ID(childId)->sibling;
+        }
+        fprintf(out, "call __func_%s;\n", node->funcName);
+        fprintf(out, "pop ra\n");
+
+    } else if (node->mode == gLang_Node_mode_less) {
+        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "mov rb, ra\n");
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "cmp rb, ra\n");
+        fprintf(out, "mov ra, 0\n");
+        fprintf(out, "movl ra, 1\n");
+
+
+    } else if (node->mode == gLang_Node_mode_great) {
+        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "mov rb, ra\n");
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "cmp rb, ra\n");
+        fprintf(out, "mov ra, 0\n");
+        fprintf(out, "movg ra, 1\n");
+
+    } else {
+        assert(!"This should never happen, PANIC!!1!");
+    }
+    return gLang_status_OK;
+}
+
+gLang_status gLang_compileBlk(gLang *context, size_t siblingId)
+{
+    GLANG_CHECK_SELF_PTR(context);
+    GLANG_ID_CHECK(siblingId);
+
+    while (siblingId != -1) {
+        GLANG_IS_OK(gLang_compileStmnt(context, siblingId));
+        siblingId = GLANG_NODE_BY_ID(siblingId)->sibling;
+    }
+    return gLang_status_OK;
+}
+
+gLang_status gLang_compileStmnt(gLang *context, size_t rootId)
+{
+    GLANG_CHECK_SELF_PTR(context);
+    GLANG_ID_CHECK(rootId);
+
+    gLang_Node *node = &GLANG_NODE_BY_ID(rootId)->data;
+    FILE *out = context->asmOut;
+    size_t childId = GLANG_NODE_BY_ID(rootId)->child;
+
+    if (node->mode == gLang_Node_mode_keyword &&
+            node->keyword == gLang_Node_keyword_if) {
+        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "cmp ra, 0\n");
+        fprintf(out, "jeq __label_%lu\n", context->labelCnt);
+        GLANG_IS_OK(gLang_compileBlk(context, siblingId));
+        fprintf(out, "__label_%lu:\n", context->labelCnt);
+        ++context->labelCnt;
+    } else if (node->mode == gLang_Node_mode_keyword &&
+            node->keyword == gLang_Node_keyword_while) {
+        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        fprintf(out, "__label_beg_%lu:\n", context->labelCnt);
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "cmp ra, 0\n");
+        fprintf(out, "jne __label_end_%lu\n", context->labelCnt + 1);
+        GLANG_IS_OK(gLang_compileBlk(context, siblingId));
+        fprintf(out, "jmp __label_beg_%lu\n", context->labelCnt);
+        fprintf(out, "__label_end_%lu:\n", context->labelCnt + 1);
+        context->labelCnt += 2;
+    } else if (node->mode == gLang_Node_mode_assign) {
+        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        gLang_Node *sibling = &GLANG_NODE_BY_ID(siblingId)->data;
+        fprintf(out, "mov [__VARS__ + rf - %lu], ra ; (%s)\n", sibling->varId, sibling->varName);
+
+    } else if (node->mode == gLang_Node_mode_keyword &&
+            node->keyword == gLang_Node_keyword_return) {
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        size_t offset = context->varTables[context->varTablesCur].len;
+        fprintf(out, "sub rf, %lu\n", offset);
+        fprintf(out, "pop rb\n");
+        fprintf(out, "push ra\n");
+        fprintf(out, "push rb\n");
+        fprintf(out, "ret\n");
+    } else {
+        GLANG_IS_OK(gLang_compileExpr(context, rootId));
+    }
+    return gLang_status_OK;
+}
+
+gLang_status gLang_compile(gLang *context, FILE *out)
+{
+    /*
+     * RF register is used as an offset for local vars in current namespace
+     */
+    GLANG_CHECK_SELF_PTR(context);
+    GLANG_ASSERT_LOG(gPtrValid(out), gLang_status_BadPtr);
+
+    size_t funcRootId = GLANG_NODE_BY_ID(context->tree.root)->child;
+    if (funcRootId == -1) {
+        fprintf(context->logStream, "There is nothing to compile, have you ran the parser?\n");
+        return gLang_status_NothingToDo;
+    }
+
+    size_t cnt = 0;
+    while (funcRootId != -1) {
+        ++cnt;
+        funcRootId = GLANG_NODE_BY_ID(funcRootId)->sibling;
+    }
+
+    context->asmOut = out;
+    context->labelCnt = 0;
+    context->varTablesLen = cnt;
+    context->varTables = (GENERIC(stack)*)calloc(cnt, sizeof(GENERIC(stack)));
+    GLANG_ASSERT_LOG(context->varTables != NULL, gLang_status_AllocErr);
+
+    funcRootId = GLANG_NODE_BY_ID(context->tree.root)->child;
+    context->varTablesCur = 0;
+    while (funcRootId != -1) {
+        GENERIC(stack_ctor)(&context->varTables[context->varTablesCur]);
+        gLang_fillVarTable(context, funcRootId);
+
+        gTree_Node *node = GLANG_NODE_BY_ID(funcRootId);
+        size_t len = context->varTables[context->varTablesCur].len;
+        #ifdef EXTRA_VERBOSE
+            fprintf(stderr, "for func %s varTable len is %lu\n", node->data.funcName, len);
+        #endif
+
+        fprintf(out, "__func_%s:\n", node->data.funcName);
+        fprintf(out, "add rf, %lu\n", len);
+        size_t argId = node->child;
+        node = GLANG_NODE_BY_ID(argId);
+        size_t blkId = node->sibling;
+        argId = node->child;
+
+        while (argId != -1) {
+            node = GLANG_NODE_BY_ID(argId);
+            fprintf(out, "pop [__VARS__ + rf - %lu]; (%s)\n", node->data.varId, node->data.varName);
+            argId = node->sibling;
+        }
+
+        GLANG_IS_OK(gLang_compileBlk(context, blkId));
+
+        ++context->varTablesCur;
+        funcRootId = GLANG_NODE_BY_ID(funcRootId)->sibling;
+    }
 
     return gLang_status_OK;
 }

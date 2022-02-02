@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDART 20)
 set(CMAKE_CXX_STANDART_REQUIRED ON)
 
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -w" CACHE STRING "Comment" FORCE)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -w " CACHE STRING "Comment" FORCE)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} " CACHE STRING "Comment" FORCE)
 set(CMAKE_CXX_FLAGS_SANITIZER "${CMAKE_CXX_FLAGS} -msse4.2 -Wpedantic -Wall -Wextra -Wformat=2 -fsanitize=address,undefined -g -D __SANITIZE_ADDRESS__ -D EXTRA_VERBOSE" CACHE STRING "Comment" FORCE)
 set(CMAKE_CXX_FLAGS_COVERAGE "${CMAKE_CXX_FLAGS} -msse4.2 -D NDEBUG -fprofile-instr-generate -fcoverage-mapping" CACHE STRING "Comment" FORCE)

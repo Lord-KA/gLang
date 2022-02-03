@@ -16,8 +16,8 @@ int main()
                 a = b + 17 * fuck;
                 if (f(a, 12 + 1, 4) < 18)
                     while (a > 0)
-                        a = a - 1;
-                return a;
+                    a = a - 1;
+                    return a;
             })";
     */
     /*
@@ -40,9 +40,20 @@ int main()
     ";
     */
     char program[] = "                      \
-            f(x, y, z)                      \
+            f(a) {                          \
+                if (a > 2)                  \
+                    return f(a - 1) + f(a - 2); \
+                if (a > 1)                  \
+                    return 1;               \
+                return 1;                   \
+            }                               \
+            main()                          \
             {                               \
-                return x + y + z;           \
+                a = 99;                     \
+                b = 100;                    \
+                c = 17;                     \
+                d = 13;                     \
+                return f(5);                \
             }                               \
     ";
     size_t len = strlen(program);

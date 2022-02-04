@@ -40,9 +40,9 @@ int main()
     ";
     */
     char program[] = "                      \
-            f(a) {                          \
+            fib(a) {                        \
                 if (a > 2)                  \
-                    return f(a - 1) + f(a - 2); \
+                    return f(a - 1) + f(a - 2);\
                 if (a > 1)                  \
                     return 1;               \
                 return 1;                   \
@@ -53,9 +53,23 @@ int main()
                 b = 100;                    \
                 c = 17;                     \
                 d = 13;                     \
-                return f(5);                \
+                return fib(6);              \
             }                               \
     ";
+    /*
+    char program[] = "                      \
+           main()                           \
+            {                               \
+                a = 0-1;                      \
+                b = 3;                      \
+                return b^a;           \
+                if (a > 0)                  \
+                    return a / b;           \
+                return 0;                   \
+            }                               \
+    ";
+    */
+
     size_t len = strlen(program);
     fprintf(stderr, "len = %lu\n", len);
     gLang_lexer(ctx, program);

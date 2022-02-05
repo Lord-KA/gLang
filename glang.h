@@ -67,6 +67,9 @@ enum gLang_Node_keyword {
     gLang_Node_keyword_return,
     gLang_Node_keyword_print,
     gLang_Node_keyword_while,
+    gLang_Node_keyword_sqrt,
+    gLang_Node_keyword_sin,
+    gLang_Node_keyword_cos,
     gLang_Node_keyword_CNT,
 };
 
@@ -76,6 +79,9 @@ static const char gLang_Node_keywordView[gLang_Node_keyword_CNT][GLANG_MAX_LIT_L
         "return",
         "print",
         "while",
+        "sqrt",
+        "sin",
+        "cos",
     };
 
 struct gLang_Node
@@ -351,6 +357,17 @@ static gLang_status gLang_lexer(gLang *context, const char *buffer)
         bool foundLit = false;
         for (size_t i = gLang_Node_mode_add; i < gLang_Node_mode_var; ++i) {
             /* one-symbol literals case */
+            if (*cur == '-') {
+                if (context->LexemeIds.len <= 1)
+                    break;
+                gLang_Node *prev = &GLANG_NODE_BY_ID(context->LexemeIds.data[context->LexemeIds.len - 2])->data;
+                if (prev->mode == gLang_Node_mode_keyword ||
+                        (prev->mode >= gLang_Node_mode_add && prev->mode < gLang_Node_mode_var &&
+                         prev->mode != gLang_Node_mode_clBrack))
+                    break;
+
+
+            }
             if (*gLang_Node_modeView[i] == *cur) {
                 node->mode = (gLang_Node_mode)i;
                 foundLit = true;
@@ -789,6 +806,19 @@ static gLang_status gLang_parser_prior(gLang *context, size_t rootId)
         context->lexemeCur += 1;
     } else if (node->mode == gLang_Node_mode_func) {
         GLANG_IS_OK(gLang_parser_func(context, rootId));
+
+    } else if (node->mode == gLang_Node_mode_keyword &&
+                   node->keyword >= gLang_Node_keyword_sqrt &&
+                   node->keyword < gLang_Node_keyword_CNT) {
+        size_t funcId = GLANG_CUR_NODE_ID();
+        GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, funcId));
+        context->lexemeCur += 1;
+        GLANG_ASSERT_LOG(GLANG_CUR_NODE()->mode == gLang_Node_mode_opBrack, gLang_status_ParsingErr_NoBrack);
+        context->lexemeCur += 1;
+        GLANG_IS_OK(gLang_parser_expr(context, funcId));
+        GLANG_ASSERT_LOG(GLANG_CUR_NODE()->mode == gLang_Node_mode_clBrack, gLang_status_ParsingErr_NoBrack);
+        context->lexemeCur += 1;
+
     } else {
         return gLang_status_NothingToDo;
     }
@@ -1313,6 +1343,13 @@ gLang_status gLang_compileExpr(gLang *context, size_t rootId)
         fprintf(out, "mov ax, 0\n");
         fprintf(out, "cmovg ax, 1\n");
         fprintf(out, "push ax\n");
+
+    } else if (node->mode == gLang_Node_mode_keyword &&
+                   node->keyword >= gLang_Node_keyword_sqrt &&
+                   node->keyword < gLang_Node_keyword_CNT) {
+
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "%s\n", gLang_Node_keywordView[node->keyword]);
 
     } else {
         assert(!"This should never happen, PANIC!!1!");

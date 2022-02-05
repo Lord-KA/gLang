@@ -58,6 +58,7 @@ int main()
             }                               \
     ";
     */
+    /*
     char program[] = "                      \
             fib_rec(a) {                    \
                 if (a > 2)                  \
@@ -85,6 +86,40 @@ int main()
                 return fib_iter(6);         \
             }                               \
     ";
+    */
+    char program[] = "                      \
+            abs(x)                          \
+            {                               \
+                if (x < 0)                  \
+                    return (-1) * x;        \
+                return x;                   \
+            }                               \
+            sign(x)                         \
+            {                               \
+                if (x < 0)                  \
+                    return -1;              \
+                return 1;                   \
+            }                               \
+            quadric_solver(a, b, c)         \
+            {                               \
+                if (abs(a) < 1) {           \
+                    print -1 * c / b;       \
+                    return 0;               \
+                }                           \
+                det = b^2 - 4 * a * c;      \
+                if (det > 0) {              \
+                    two = 2;                \
+                    print ((-1 * b - sqrt(det)) / two) / a;\
+                    print ((-1 * b + sqrt(det)) / two) / a; \
+                    return 0;               \
+                }                           \
+                return 1;                   \
+            }                               \
+            main()                          \
+            {                               \
+                return quadric_solver(1, 2, -3);\
+            }";
+
 
     size_t len = strlen(program);
     fprintf(stderr, "len = %lu\n", len);
@@ -98,13 +133,12 @@ int main()
     gTree_dumpPoolGraphViz(&ctx->tree, out);
     fclose(out);
 
-    gLang_compile(ctx, stdout);
-    /*
     gLang_optimize(ctx, ctx->tree.root);
     out = fopen("optimized.gv", "w");
     gTree_dumpPoolGraphViz(&ctx->tree, out);
     fclose(out);
-    */
+
+    gLang_compile(ctx, stdout);
 
     gLang_dtor(ctx);
 }

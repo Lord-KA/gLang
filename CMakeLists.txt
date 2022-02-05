@@ -16,18 +16,6 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -msse4.2 -D FULL_DEBUG -g -Werror 
 include(FetchContent)
 
 FetchContent_Declare(
-  googletest
-  GIT_REPOSITORY https://github.com/google/googletest.git
-  GIT_TAG        release-1.8.0
-)
-
-FetchContent_GetProperties(googletest)
-if(NOT googletest_POPULATED)
-  FetchContent_Populate(googletest)
-  add_subdirectory(${googletest_SOURCE_DIR} ${googletest_BINARY_DIR})
-endif()
-
-FetchContent_Declare(
   gutils
   GIT_REPOSITORY https://github.com/lord-ka/gutils.git
   GIT_TAG        release-1.0.4
@@ -69,20 +57,21 @@ if(NOT gstack_POPULATED)
   include_directories(${gstack_SOURCE_DIR})
 endif()
 
-
-
-set_target_properties(gtest PROPERTIES FOLDER extern)
-set_target_properties(gtest_main PROPERTIES FOLDER extern)
-set_target_properties(gmock PROPERTIES FOLDER extern)
-set_target_properties(gmock_main PROPERTIES FOLDER extern)
-
-enable_testing()
+FetchContent_Declare(
+  gspu
+  GIT_REPOSITORY https://github.com/lord-KA/spu.git
+  #GIT_TAG        release-1.1.1 #TODO add release tag
+)
+if(NOT gspu_POPULATED)
+  FetchContent_Populate(gspu)
+  add_subdirectory(${gspu_SOURCE_DIR})
+endif()
 
 add_executable(glang glang-main.cpp glang.h)
 
-target_link_libraries(
-    #    gderivator-test?
-    gtest_main
-)
 
-include(GoogleTest)
+add_custom_command(
+  OUTPUT "assembler"
+  COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/build/_deps/gspu-src/assembler ${CMAKE_CURRENT_BINARY_DIR}
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/_deps/gspu-src/assembler
+)

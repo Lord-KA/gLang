@@ -39,6 +39,7 @@ int main()
             }                               \
     ";
     */
+    /*
     char program[] = "                      \
             fib(a) {                        \
                 if (a > 2)                  \
@@ -53,22 +54,37 @@ int main()
                 b = 100;                    \
                 c = 17;                     \
                 d = 13;                     \
-                return fib(6);              \
-            }                               \
-    ";
-    /*
-    char program[] = "                      \
-           main()                           \
-            {                               \
-                a = 0-1;                      \
-                b = 3;                      \
-                return b^a;           \
-                if (a > 0)                  \
-                    return a / b;           \
-                return 0;                   \
+                return fib(d);              \
             }                               \
     ";
     */
+    char program[] = "                      \
+            fib_rec(a) {                    \
+                if (a > 2)                  \
+                    return fib_rec(a - 1) + \
+                             fib_rec(a - 2);\
+                if (a > 1)                  \
+                    return 1;               \
+                return 1;                   \
+            }                               \
+            fib_iter(n)                     \
+            {                               \
+                a = 1;                      \
+                b = 0;                      \
+                while (n > 1) {             \
+                    tmp = a;                \
+                    a = a + b;              \
+                    b = tmp;                \
+                    n = n - 1;              \
+                    print n;                \
+                }                           \
+                return a;                   \
+            }                               \
+            main()                          \
+            {                               \
+                return fib_iter(6);         \
+            }                               \
+    ";
 
     size_t len = strlen(program);
     fprintf(stderr, "len = %lu\n", len);

@@ -65,6 +65,7 @@ enum gLang_Node_keyword {
     gLang_Node_keyword_if,
     gLang_Node_keyword_else,
     gLang_Node_keyword_return,
+    gLang_Node_keyword_print,
     gLang_Node_keyword_while,
     gLang_Node_keyword_CNT,
 };
@@ -73,6 +74,7 @@ static const char gLang_Node_keywordView[gLang_Node_keyword_CNT][GLANG_MAX_LIT_L
         "if",
         "else",
         "return",
+        "print",
         "while",
     };
 
@@ -458,7 +460,9 @@ static gLang_status gLang_parser_while(gLang *context, size_t rootId);
 
 static gLang_status gLang_parser_blk  (gLang *context, size_t rootId);
 
-static gLang_status gLang_parser_ret  (gLang *context, size_t rootId);
+static gLang_status gLang_parser_retrn(gLang *context, size_t rootId);
+
+static gLang_status gLang_parser_print(gLang *context, size_t rootId);
 
 
 static gLang_status gLang_parser_funcDef(gLang *context, size_t rootId)
@@ -507,7 +511,13 @@ static gLang_status gLang_parser_stmnt(gLang *context, size_t rootId)
     else
         GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
 
-    status = gLang_parser_ret(context, rootId);
+    status = gLang_parser_retrn(context, rootId);
+    if (status == gLang_status_OK)
+        goto finish;
+    else
+        GLANG_ASSERT_LOG(status == gLang_status_NothingToDo, status);
+
+    status = gLang_parser_print(context, rootId);
     if (status == gLang_status_OK)
         goto finish;
     else
@@ -767,7 +777,7 @@ static gLang_status gLang_parser_prior(gLang *context, size_t rootId)
     if (node->mode == gLang_Node_mode_opBrack) {
         GLANG_POOL_FREE(GLANG_CUR_NODE_ID());
         context->lexemeCur += 1;
-        GLANG_IS_OK(gLang_parser_expn(context, rootId));
+        GLANG_IS_OK(gLang_parser_expr(context, rootId));
         node = GLANG_CUR_NODE();
         GLANG_ASSERT_LOG(node != NULL, gLang_status_ParsingErr_EmptyOutp);
         GLANG_ASSERT_LOG(node->mode == gLang_Node_mode_clBrack, gLang_status_ParsingErr_NoBrack);
@@ -854,7 +864,7 @@ static gLang_status gLang_parser_blk  (gLang *context, size_t rootId)
 }
 
 
-static gLang_status gLang_parser_ret(gLang *context, size_t rootId)
+static gLang_status gLang_parser_retrn(gLang *context, size_t rootId)
 {
     GLANG_PARSER_CHECK();
     gLang_Node *node = GLANG_CUR_NODE();
@@ -864,6 +874,26 @@ static gLang_status gLang_parser_ret(gLang *context, size_t rootId)
     size_t retId = GLANG_CUR_NODE_ID();
 
     if (node->mode != gLang_Node_mode_keyword || node->keyword != gLang_Node_keyword_return)
+        return gLang_status_NothingToDo;
+
+    context->lexemeCur += 1;
+    GLANG_IS_OK(gLang_parser_expr(context, retId));
+
+    GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, retId));
+
+    return gLang_status_OK;
+}
+
+static gLang_status gLang_parser_print(gLang *context, size_t rootId)
+{
+    GLANG_PARSER_CHECK();
+    gLang_Node *node = GLANG_CUR_NODE();
+
+    GLANG_ASSERT_LOG(node != NULL, gLang_status_ParsingErr_EmptyOutp);
+
+    size_t retId = GLANG_CUR_NODE_ID();
+
+    if (node->mode != gLang_Node_mode_keyword || node->keyword != gLang_Node_keyword_print)
         return gLang_status_NothingToDo;
 
     context->lexemeCur += 1;
@@ -1317,7 +1347,7 @@ gLang_status gLang_compileStmnt(gLang *context, size_t rootId)
         GLANG_IS_OK(gLang_compileExpr(context, childId));
         fprintf(out, "pop ax\n");
         fprintf(out, "cmp ax, 0\n");
-        fprintf(out, "jne label_end_%lu\n", context->labelCnt + 1);
+        fprintf(out, "jeq label_end_%lu\n", context->labelCnt + 1);
         GLANG_IS_OK(gLang_compileBlk(context, siblingId));
         fprintf(out, "jmp label_beg_%lu\n", context->labelCnt);
         fprintf(out, "label_end_%lu:\n", context->labelCnt + 1);
@@ -1338,6 +1368,12 @@ gLang_status gLang_compileStmnt(gLang *context, size_t rootId)
         fprintf(out, "push bx\n");
         fprintf(out, "push ax\n");
         fprintf(out, "ret\n");
+
+    } else if (node->mode == gLang_Node_mode_keyword &&
+            node->keyword == gLang_Node_keyword_print) {
+        GLANG_IS_OK(gLang_compileExpr(context, childId));
+        fprintf(out, "out\n");
+
     } else {
         GLANG_IS_OK(gLang_compileExpr(context, rootId));
     }

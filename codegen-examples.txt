@@ -50,7 +50,7 @@ mov ra, rb
 beg:
 ; calc expr to ra
 cmp ra, 0
-jne end
+jeq end
 ; exec blk
 jmp beg
 end:

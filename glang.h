@@ -261,14 +261,22 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
     macroNodeId;                                                                                        \
 })
 
+#ifdef EXTRA_VERBOSE
 #define GLANG_PARSER_CHECK() ({                                                                 \
-    fprintf(stderr, "%s curLit = %lu\n", __func__, GLANG_CUR_NODE_ID());                         \
+    fprintf(context->logStream, "%s curLit = %lu\n", __func__, GLANG_CUR_NODE_ID());             \
     GLANG_CHECK_SELF_PTR(context);                                                                \
     GLANG_ID_CHECK(rootId);                                                                        \
     GLANG_ASSERT_LOG(rootId != -1, gLang_status_ParsingErr_BadRootId);                              \
     GLANG_ASSERT_LOG(context->lexemeCur < context->LexemeIds.len, gLang_status_ParsingErr_BadCur);   \
 })
-
+#else
+#define GLANG_PARSER_CHECK() ({                                                                 \
+    GLANG_CHECK_SELF_PTR(context);                                                               \
+    GLANG_ID_CHECK(rootId);                                                                       \
+    GLANG_ASSERT_LOG(rootId != -1, gLang_status_ParsingErr_BadRootId);                             \
+    GLANG_ASSERT_LOG(context->lexemeCur < context->LexemeIds.len, gLang_status_ParsingErr_BadCur);  \
+})
+#endif
 
 struct gLang {
     gTree       tree      = {};
@@ -341,9 +349,9 @@ static gLang_status gLang_lexer(gLang *context, const char *buffer)
     gLang_Node *node = NULL;
     GENERIC(stack_clear)(&context->LexemeIds);
 
-    while (*cur != '\0' && *cur != '\n') {
+    while (*cur != '\0') {
         #ifdef EXTRA_VERBOSE
-            fprintf(stderr, "cur = %s\n", cur);
+            fprintf(context->logStream, "cur = %s\n", cur);
         #endif
         if (isspace(*cur)) {
             ++cur;
@@ -377,8 +385,8 @@ static gLang_status gLang_lexer(gLang *context, const char *buffer)
         }
         if (foundLit) {
             #ifdef EXTRA_VERBOSE
-                fprintf(stderr, "Found lit!\n");
-                fprintf(stderr, " cur = #%s#\n", cur);
+                fprintf(context->logStream, "Found lit!\n");
+                fprintf(context->logStream, "\tcur = #%s#\n", cur);
             #endif
             continue;
         }
@@ -441,10 +449,10 @@ static gLang_status gLang_lexer(gLang *context, const char *buffer)
 
 
     #ifdef EXTRA_VERBOSE
-        fprintf(stderr, "LexemeIds = {");
+        fprintf(context->logStream, "LexemeIds = {");
         for (size_t i = 0; i < context->LexemeIds.len; ++i)
-            fprintf(stderr, "%lu, ", context->LexemeIds.data[i]);
-        fprintf(stderr, "}\n");
+            fprintf(context->logStream, "%lu, ", context->LexemeIds.data[i]);
+        fprintf(context->logStream, "}\n");
     #endif
 
     return gLang_status_OK;
@@ -1482,7 +1490,7 @@ gLang_status gLang_compile(gLang *context, FILE *out)
         gTree_Node *node = GLANG_NODE_BY_ID(funcRootId);
         size_t len = context->varTables[context->varTablesCur].len;
         #ifdef EXTRA_VERBOSE
-            fprintf(stderr, "for func %s varTable len is %lu\n", node->data.funcName, len);
+            fprintf(context->logStream, "for func %s varTable len is %lu\n", node->data.funcName, len);
         #endif
 
         fprintf(out, "func_%s:\n", node->data.funcName);

@@ -9,15 +9,15 @@ $ cmake .. -DCMAKE_BUILD_TYPE=Release
 $ make
 ```
 ## Compiling
-*The project is still in pre-release version, no interface implemented yet*
+*The project is still in pre-release version, no interface has been implemented yet*
 
 ## Done
 1. Lexer
 2. Recursive descent parser to expression tree
 3. Basic optimizations
 4. Translation to gAsm
-5. CMake config with fetching all dependencies
+5. CMake config with fetching all hand-made dependencies
 
 ## TODO
-1. Add unit testing and Github Action CI
-2. Fix otimizer
+1. Create interface
+2. Convert gSPU to double

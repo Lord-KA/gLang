@@ -722,9 +722,10 @@ static gLang_status gLang_parser_term(gLang *context, size_t rootId)
             oneNode->mode = gLang_Node_mode_num;
             oneNode->value = -1;
 
+            GLANG_IS_OK(gLang_parser_expn(context, expId));
+
             GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, expId, oneId));
             GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, mulId, expId));
-            GLANG_IS_OK(gLang_parser_expn(context, expId));
         }
         node = GLANG_CUR_NODE();
     }
@@ -949,7 +950,7 @@ static gLang_status gLang_parser(gLang *context)
     return gLang_status_OK;
 }
 
-gLang_status gLang_optimize(gLang *context, const size_t rootId)    //TODO fix for gLang specifics
+gLang_status gLang_optimize(gLang *context, const size_t rootId)
 {
     GLANG_CHECK_SELF_PTR(context);
     GLANG_ID_CHECK(rootId);
@@ -966,9 +967,9 @@ gLang_status gLang_optimize(gLang *context, const size_t rootId)    //TODO fix f
     gTree_Node *child = NULL;
     childId = GLANG_NODE_BY_ID(rootId)->child;
 
+    /* calculating nums in mul */
     if (node->data.mode == gLang_Node_mode_mul) {
         double mulNum = 1;
-        double powVar = 0;
         bool calculable = true;
         while (childId != -1) {
             child = GLANG_NODE_BY_ID(childId);
@@ -978,35 +979,19 @@ gLang_status gLang_optimize(gLang *context, const size_t rootId)    //TODO fix f
                 GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
             } else {
                 calculable = false;
-                if (child->data.mode == gLang_Node_mode_var) {
-                    powVar += 1;
-                    GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
-                } else if (child->data.mode == gLang_Node_mode_exp) {
-                    size_t subChildId = child->child;
-                    gTree_Node *subChild = GLANG_NODE_BY_ID(subChildId);
-                    size_t subSiblingId = subChild->sibling;
-                    gTree_Node *subSibling = GLANG_NODE_BY_ID(subSiblingId);
-
-                    if (subSibling->sibling == -1 &&
-                            subChild->data.mode == gLang_Node_mode_var && subSibling->data.mode == gLang_Node_mode_num) {
-                        powVar += subSibling->data.value;
-                        GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
-                    }
-
-                }
             }
             childId = siblingId;
         }
 
-        if (calculable || (fabs(mulNum) < GLANG_EPS)) {
+        if (calculable || fabs(mulNum) < GLANG_EPS) {
             size_t numNodeId = GLANG_POOL_ALLOC();
             gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
             numNode->data.mode  = gLang_Node_mode_num;
             numNode->data.value = mulNum;
             GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, numNodeId));
             GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, rootId));
-
             return gLang_status_OK;
+
         } else if ((fabs(mulNum - 1) > GLANG_EPS)) {
             size_t numNodeId = GLANG_POOL_ALLOC();
             gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
@@ -1015,32 +1000,41 @@ gLang_status gLang_optimize(gLang *context, const size_t rootId)    //TODO fix f
             GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, numNodeId));
         }
 
-        if (fabs(powVar - 1) < GLANG_EPS) {
-            size_t varNodeId = GLANG_POOL_ALLOC();
-            gTree_Node *varNode = GLANG_NODE_BY_ID(varNodeId);
-            varNode->data.mode  = gLang_Node_mode_var;
-            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, varNodeId));
-        } else if (fabs(powVar) > GLANG_EPS) {
-            size_t expNodeId = GLANG_POOL_ALLOC();
-            gTree_Node *expNode = GLANG_NODE_BY_ID(expNodeId);
-            expNode->data.mode  = gLang_Node_mode_exp;
-
-            size_t varNodeId = GLANG_POOL_ALLOC();
-            gTree_Node *varNode = GLANG_NODE_BY_ID(varNodeId);
-            varNode->data.mode  = gLang_Node_mode_var;
-
-            size_t numNodeId = GLANG_POOL_ALLOC();
-            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
-            numNode->data.mode  = gLang_Node_mode_num;
-            numNode->data.value = powVar;
-
-            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, expNodeId, varNodeId));
-            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, expNodeId, numNodeId));
-            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId,    expNodeId));
+        /* optimizing smth * smth ^ -1  =>  smth / smth */
+        node = GLANG_NODE_BY_ID(rootId);
+        childId = GLANG_NODE_BY_ID(rootId)->child;
+        child = GLANG_NODE_BY_ID(childId);
+        size_t siblingId = child->sibling;
+        if (siblingId != -1) {
+            gTree_Node *sibling = GLANG_NODE_BY_ID(siblingId);
+            if (sibling->sibling == -1) {
+                if (sibling->data.mode == gLang_Node_mode_exp) {
+                    size_t subChildId = sibling->child;
+                    gTree_Node *subChild = GLANG_NODE_BY_ID(subChildId);
+                    size_t subSiblingId = subChild->sibling;
+                    if (subSiblingId != -1) {
+                        gTree_Node *subSibling = GLANG_NODE_BY_ID(subSiblingId);
+                        if (subSibling->sibling == -1) {
+                           if (subSibling->data.mode == gLang_Node_mode_num && fabs(subSibling->data.value + 1) < GLANG_EPS) {
+                                node->data.mode = gLang_Node_mode_div;
+                                subChild->sibling = -1;
+                                child->sibling = -1;
+                                sibling->child = -1;
+                                GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, subSiblingId));
+                                GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, siblingId));
+                                GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, subChildId));
+                            }
+                        }
+                    }
+                }
+            }
         }
+
+
+
+    /* calculating nums in add */
     } else if (node->data.mode == gLang_Node_mode_add) {
         double addNum = 0;
-        double addVar = 0;
         bool calculable = true;
         while (childId != -1) {
             child = GLANG_NODE_BY_ID(childId);
@@ -1050,25 +1044,6 @@ gLang_status gLang_optimize(gLang *context, const size_t rootId)    //TODO fix f
                 GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
             } else {
                 calculable = false;
-                if (child->data.mode == gLang_Node_mode_var) {
-                    addVar += 1;
-                    GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
-                } else if (child->data.mode == gLang_Node_mode_mul) {
-                    size_t subChildId = child->child;
-                    gTree_Node *subChild = GLANG_NODE_BY_ID(subChildId);
-                    size_t subSiblingId = subChild->sibling;
-                    gTree_Node *subSibling = GLANG_NODE_BY_ID(subSiblingId);
-
-                    if (subSibling->sibling == -1 && (
-                            (subChild->data.mode == gLang_Node_mode_var && subSibling->data.mode == gLang_Node_mode_num) ||
-                            (subChild->data.mode == gLang_Node_mode_num && subSibling->data.mode == gLang_Node_mode_var))) {
-                        if (subChild->data.mode == gLang_Node_mode_num)
-                            addVar += subChild->data.value;
-                        else
-                            addVar += subSibling->data.value;
-                        GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, childId));
-                    }
-                }
             }
             childId = siblingId;
         }
@@ -1079,8 +1054,8 @@ gLang_status gLang_optimize(gLang *context, const size_t rootId)    //TODO fix f
             numNode->data.value = addNum;
             GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, numNodeId));
             GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, rootId));
-
             return gLang_status_OK;
+
         } else if (fabs(addNum) > GLANG_EPS) {
             size_t numNodeId = GLANG_POOL_ALLOC();
             gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
@@ -1089,40 +1064,43 @@ gLang_status gLang_optimize(gLang *context, const size_t rootId)    //TODO fix f
             GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, numNodeId));
         }
 
-        if (fabs(addVar - 1) < GLANG_EPS) {
-            size_t varNodeId = GLANG_POOL_ALLOC();
-            gTree_Node *varNode = GLANG_NODE_BY_ID(varNodeId);
-            varNode->data.mode  = gLang_Node_mode_var;
-            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, varNodeId));
-        } else if (fabs(addVar) > GLANG_EPS) {
-            size_t mulNodeId = GLANG_POOL_ALLOC();
-            gTree_Node *mulNode = GLANG_NODE_BY_ID(mulNodeId);
-            mulNode->data.mode  = gLang_Node_mode_mul;
-
-            size_t varNodeId = GLANG_POOL_ALLOC();
-            gTree_Node *varNode = GLANG_NODE_BY_ID(varNodeId);
-            varNode->data.mode  = gLang_Node_mode_var;
-
-            size_t numNodeId = GLANG_POOL_ALLOC();
-            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
-            numNode->data.mode  = gLang_Node_mode_num;
-            numNode->data.value = addVar;
-
-            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, mulNodeId, varNodeId));
-            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, mulNodeId, numNodeId));
-            GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId,    mulNodeId));
-        }
-        /*                                                      //TODO add conversion to Sub case when convinient
+        /* optimizing smth + -1 * smth  =>  smth - smth */
+        node = GLANG_NODE_BY_ID(rootId);
         childId = GLANG_NODE_BY_ID(rootId)->child;
-        siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        child = GLANG_NODE_BY_ID(childId);
+        size_t siblingId = child->sibling;
         if (siblingId != -1) {
-            sibling = GLANG_NODE_BY_ID(siblingId);
+            gTree_Node *sibling = GLANG_NODE_BY_ID(siblingId);
             if (sibling->sibling == -1) {
-                if (sibling->data.mode == gLang_Node_mode_mul || gLang_Node_mode_num)
+                if (sibling->data.mode == gLang_Node_mode_mul) {
+                    size_t subChildId = sibling->child;
+                    gTree_Node *subChild = GLANG_NODE_BY_ID(subChildId);
+                    size_t subSiblingId = subChild->sibling;
+                    if (subSiblingId != -1) {
+                        gTree_Node *subSibling = GLANG_NODE_BY_ID(subSiblingId);
+                        if (subSibling->sibling == -1) {
+                            if (subChild->data.mode == gLang_Node_mode_num && fabs(subChild->data.value + 1) < GLANG_EPS) {
+                                node->data.mode = gLang_Node_mode_sub;
+                                subChild->sibling = -1;
+                                child->sibling = -1;
+                                GLANG_TREE_CHECK(gTree_delSubtree(&context->tree, siblingId));
+                                GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, subSiblingId));
+                            } else if (subSibling->data.mode == gLang_Node_mode_num && fabs(subSibling->data.value + 1) < GLANG_EPS) {
+                                node->data.mode = gLang_Node_mode_sub;
+                                subChild->sibling = -1;
+                                child->sibling = -1;
+                                sibling->child = -1;
+                                GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, subSiblingId));
+                                GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, siblingId));
+                                GLANG_TREE_CHECK(gTree_addExistChild(&context->tree, rootId, subChildId));
+                            }
+                        }
+                    }
+                }
             }
         }
-        */
 
+    /* optimizing num - num */
     } else if (node->data.mode == gLang_Node_mode_sub) {
         GLANG_ID_CHECK(childId);
         gTree_Node *child = GLANG_NODE_BY_ID(childId);
@@ -1139,7 +1117,9 @@ gLang_status gLang_optimize(gLang *context, const size_t rootId)    //TODO fix f
             numNode->data.value = res;
             GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, numNodeId));
             GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, rootId));
+            return gLang_status_OK;
         }
+    /* optimizing num / num  and  smth / 1 */
     } else if (node->data.mode == gLang_Node_mode_div) {
         GLANG_ID_CHECK(childId);
         gTree_Node *child = GLANG_NODE_BY_ID(childId);
@@ -1156,13 +1136,46 @@ gLang_status gLang_optimize(gLang *context, const size_t rootId)    //TODO fix f
             numNode->data.value = res;
             GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, numNodeId));
             GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, rootId));
+            return gLang_status_OK;
+
         } else if (sibling->data.mode == gLang_Node_mode_num && sibling->data.value == 1) {
             child->sibling = -1;
             GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, childId));
             GLANG_POOL_FREE(rootId);
             GLANG_POOL_FREE(siblingId);
+            return gLang_status_OK;
+        }
+    /* optimizing num ^ num  and  smth ^ 1 */
+    } else if (node->data.mode == gLang_Node_mode_exp) {
+        GLANG_ID_CHECK(childId);
+        gTree_Node *child = GLANG_NODE_BY_ID(childId);
+        size_t siblingId = child->sibling;
+        GLANG_ID_CHECK(siblingId);
+        gTree_Node *sibling = GLANG_NODE_BY_ID(siblingId);
+
+        if (child->data.mode == gLang_Node_mode_num &&
+                sibling->data.mode == gLang_Node_mode_num) {
+            double res = pow(child->data.value, sibling->data.value);
+            size_t numNodeId = GLANG_POOL_ALLOC();
+            gTree_Node *numNode = GLANG_NODE_BY_ID(numNodeId);
+            numNode->data.mode  = gLang_Node_mode_num;
+            numNode->data.value = res;
+            GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, numNodeId));
+            GLANG_TREE_CHECK(gTree_killSubtree(&context->tree, rootId));
+            return gLang_status_OK;
+
+        } else if (sibling->data.mode == gLang_Node_mode_num && sibling->data.value == 1) {
+            child->sibling = -1;
+            GLANG_TREE_CHECK(gTree_replaceNode(&context->tree, rootId, childId));
+            GLANG_POOL_FREE(rootId);
+            GLANG_POOL_FREE(siblingId);
+            return gLang_status_OK;
         }
     }
+
+    assert(gObjPool_idValid(&context->tree.pool, rootId));
+
+    /* optimizing  smth [+*] (smth [+*] smth)  =>  smth [+*] smth [+*] smth */
     node = GLANG_NODE_BY_ID(rootId);
     if ((node->data.mode == gLang_Node_mode_mul) || (node->data.mode == gLang_Node_mode_add)) {
         const gLang_Node_mode mode = node->data.mode;

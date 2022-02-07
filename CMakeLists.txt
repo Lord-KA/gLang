@@ -60,15 +60,14 @@ endif()
 FetchContent_Declare(
   gspu
   GIT_REPOSITORY https://github.com/lord-KA/spu.git
-  #GIT_TAG        release-1.1.1 #TODO add release tag
+  GIT_TAG        release-1.1.0
 )
 if(NOT gspu_POPULATED)
   FetchContent_Populate(gspu)
   add_subdirectory(${gspu_SOURCE_DIR})
 endif()
 
-add_executable(glang glang-main.cpp glang.h)
-
+add_executable(glang glang-main.cpp glang.cpp glang.h)
 
 add_custom_command(
   OUTPUT "assembler"

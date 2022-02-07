@@ -8,8 +8,12 @@ $ cd build
 $ cmake .. -DCMAKE_BUILD_TYPE=Release
 $ make
 ```
-## Compiling
-*The project is still in pre-release version, no interface has been implemented yet*
+## Usage
+```
+Usage: -h          : show this help
+       -i FileName : input from file
+       -o FileName : output to file 
+```
 
 ## Done
 1. Lexer
@@ -17,7 +21,7 @@ $ make
 3. Basic optimizations
 4. Translation to gAsm
 5. CMake config with fetching all hand-made dependencies
+6. Basic examples in glang
 
 ## TODO
-1. Create interface
-2. Convert gSPU to double
+1. Convert gSPU to double

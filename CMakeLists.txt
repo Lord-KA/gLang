@@ -30,7 +30,7 @@ endif()
 FetchContent_Declare(
   gobjpool
   GIT_REPOSITORY https://github.com/Lord-KA/gObjPool.git
-  GIT_TAG        release-1.0.4
+  GIT_TAG        release-1.1.0
 )
 if(NOT gobjpool_POPULATED)
   FetchContent_Populate(gobjpool)
@@ -40,7 +40,7 @@ endif()
 FetchContent_Declare(
   gtree
   GIT_REPOSITORY https://github.com/Lord-KA/gTree.git
-  GIT_TAG        release-1.1.0.1
+  GIT_TAG        release-1.1.1
 )
 if(NOT gtree_POPULATED)
   FetchContent_Populate(gtree)
@@ -60,7 +60,7 @@ endif()
 FetchContent_Declare(
   gspu
   GIT_REPOSITORY https://github.com/lord-KA/spu.git
-  GIT_TAG        release-1.1.0
+  GIT_TAG        release-1.1.1
 )
 if(NOT gspu_POPULATED)
   FetchContent_Populate(gspu)

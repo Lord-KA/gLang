@@ -27,7 +27,7 @@ typedef enum {
 typedef struct {
     FILE *out;
     bool inUse[REG_CNT_];
-} regPool;
+} varPool;
 
 typedef struct {
     REGISTER_ reg;
@@ -35,10 +35,10 @@ typedef struct {
     bool temp;
 } Var;
 
-regPool *regPool_new(FILE *out)
+varPool *varPool_new(FILE *out)
 {
     assert(out != NULL);
-    regPool *p = calloc(1, sizeof(regPool));
+    varPool *p = calloc(1, sizeof(varPool));
     assert(p != NULL);
     if (p == NULL)
         return p;
@@ -49,14 +49,14 @@ regPool *regPool_new(FILE *out)
     return p;
 }
 
-regPool *regPool_delete(regPool *p)
+varPool *varPool_delete(varPool *p)
 {
     assert(p != NULL);
     free(p);
     return NULL;
 }
 
-Var regPool_alloc(regPool *p)
+Var varPool_alloc(varPool *p)
 {
     assert(p != NULL);
     size_t i;
@@ -73,7 +73,7 @@ Var regPool_alloc(regPool *p)
     return res;
 }
 
-void regPool_free(regPool *p, Var v)
+void varPool_free(varPool *p, Var v)
 {
     assert(p != NULL);
     assert(v.reg != REG_CNT_ && v.reg != RAX && v.reg != RSP && v.reg != RBP && v.reg != REG_NONE_);

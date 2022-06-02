@@ -1,3 +1,7 @@
+main()
+{
+    return quadric_solver(1, 2, -3);
+}
 abs(x)
 {
     if (x < 0)
@@ -24,8 +28,4 @@ quadric_solver(a, b, c)
         return 0;
     }
     return 1;
-}
-main()
-{
-    return quadric_solver(1, 2, -3);
 }

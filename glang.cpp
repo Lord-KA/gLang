@@ -955,19 +955,21 @@ static gLang_status gLang_fillVarTable(gLang *ctx, size_t rootId)
     GLANG_ID_CHECK(rootId);
     GLANG_ASSERT_LOG(gPtrValid(ctx->varTables), gLang_status_BadPtr);
 
-    GENERIC(stack) *varStack = &(ctx->varTables[ctx->varTablesCur]);
-    GLANG_ASSERT_LOG(gPtrValid(varStack), gLang_status_BadPtr);
+    gArr *vars = &(ctx->varTables[ctx->varTablesCur]);
+    GLANG_ASSERT_LOG(gPtrValid(vars), gLang_status_BadPtr);
 
     gLang_Node *node = &GLANG_NODE_BY_ID(rootId)->data;
     if (node->mode == gLang_Node_mode_var) {
         size_t i = 0;
-        for (i = 0; i < varStack->len; ++i) {
-            size_t varId = varStack->data[i];
+        for (i = 0; i < vars->len; ++i) {
+            size_t varId = vars->data[i].varId;
             if (!strcmp(node->varName, GLANG_NODE_BY_ID(varId)->data.varName))
                 break;
         }
-        if (i == varStack->len)
-            GENERIC(stack_push)(varStack, rootId);
+        if (i == vars->len) {
+            Var v =                                                                     //TODO there is a need to rework whole varTable stuff, cause we need a different varPool for each func and maybe it should include whole varTable in it?
+            gArr_push(vars, rootId);
+        }
         node->varId = i;
     }
 
@@ -1178,7 +1180,7 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
     ctx->asmOut = out;
     ctx->labelCnt = 0;
     ctx->varTablesLen = cnt;
-    ctx->varTables = (GENERIC(stack)*)calloc(cnt, sizeof(GENERIC(stack)));
+    ctx->varTables = (gArr*)calloc(cnt, sizeof(gArr));                //TODO define MAX_VARS
     GLANG_ASSERT_LOG(ctx->varTables != NULL, gLang_status_AllocErr);
 
     fprintf(out, "main:\n");
@@ -1188,7 +1190,7 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
     funcRootId = GLANG_NODE_BY_ID(ctx->tree.root)->child;
     ctx->varTablesCur = 0;
     while (funcRootId != -1) {
-        GENERIC(stack_ctor)(&ctx->varTables[ctx->varTablesCur]);
+        ctx->varTables[ctx->varTablesCur] = gArr_new(10);
         gLang_fillVarTable(ctx, funcRootId);
 
         gTree_Node *node = GLANG_NODE_BY_ID(funcRootId);

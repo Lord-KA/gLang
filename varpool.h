@@ -3,11 +3,12 @@
 #include <stdbool.h>
 #include <assert.h>
 
+
 typedef enum {
     REG_NONE_ = 0,
     RAX,            // Service
-    RBX,
-    RCX,
+    RBX,            // Service
+    RCX,            // Service
     RDX,
     RSI,
     RDI,
@@ -33,17 +34,21 @@ typedef struct {
     REGISTER_ reg;
     size_t offset;
     bool temp;
+    size_t varId;
 } Var;
 
 varPool *varPool_new(FILE *out)
 {
     assert(out != NULL);
-    varPool *p = calloc(1, sizeof(varPool));
+    varPool *p = (varPool*)calloc(1, sizeof(varPool));
     assert(p != NULL);
     if (p == NULL)
         return p;
     p->out = out;
+    p->inUse[REG_NONE_] = true;
     p->inUse[RAX] = true;
+    p->inUse[RBX] = true;
+    p->inUse[RCX] = true;
     p->inUse[RSP] = true;
     p->inUse[RBP] = true;
     return p;
@@ -66,7 +71,7 @@ Var varPool_alloc(varPool *p)
     if (i == REG_CNT_) {
         res.offset = 0x1234;            //TODO calc offset here
     } else {
-        res.reg = i;
+        res.reg = (REGISTER_)i;
         res.offset = -1;
     }
     p->inUse[i] = true;
@@ -76,7 +81,7 @@ Var varPool_alloc(varPool *p)
 void varPool_free(varPool *p, Var v)
 {
     assert(p != NULL);
-    assert(v.reg != REG_CNT_ && v.reg != RAX && v.reg != RSP && v.reg != RBP && v.reg != REG_NONE_);
+    assert(v.reg != REG_CNT_ && v.reg > RCX && v.reg != RSP && v.reg != RBP);
     if (v.reg == REG_NONE_) {
         //TODO free reg offset?
     } else {

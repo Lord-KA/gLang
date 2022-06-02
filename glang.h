@@ -248,6 +248,10 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 
 #include "commands.h"
 
+#define T Var
+#include "garray.h"
+#undef T
+
 struct gLang {
     gTree       tree      = {};
     FILE       *logStream = {};
@@ -256,10 +260,11 @@ struct gLang {
     size_t      labelCnt  = {};
     GENERIC(stack) LexemeIds = {};
     size_t         lexemeCur = {};
-    GENERIC(stack) *varTables    = {};
+    gArr           *varTables    = {};
     size_t          varTablesCur = {};
     size_t          varTablesLen = {};
     Command *commands = {};
+    size_t   commandsCur = {};
 } typedef gLang;
 
 

@@ -6,6 +6,8 @@ typedef enum {
     #define OP_DEF(name, ...) name,
         #include "opcodes.h"
     #undef OP_DEF
+    EXIT,
+    LABEL,
     OP_CNT_
 } OPCODE_;
 
@@ -15,4 +17,5 @@ typedef struct {
     Var second;
     Var third;
     size_t jmpId;
+    char name[100];         //TODO
 } Command;

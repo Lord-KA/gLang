@@ -955,15 +955,47 @@ static gLang_status gLang_fillVarTable(gLang *ctx, size_t rootId)
     GLANG_ID_CHECK(rootId);
     GLANG_ASSERT_LOG(gPtrValid(ctx->varTables), gLang_status_BadPtr);
 
-    varTable *t = ctx->varTables + ctx->varTablesCur;
-    GLANG_ASSERT_LOG(gPtrValid(t), gLang_status_BadPtr);
+    varPool *p = ctx->varTables + ctx->varTablesCur;
+    size_t argId = GLANG_NODE_BY_ID(rootId)->child;
+    gTree_Node *node = GLANG_NODE_BY_ID(rootId);
+    argId = node->child;
 
+    size_t i = 0;
+    while (argId != -1 && i < 6) {          // 6 == number of args passed via registers
+        gTree_Node *node = GLANG_NODE_BY_ID(argId);
+        node->var = varPool_alloc(p, argId);
+        GLANG_ASSERT_LOG(node->var != NULL, gLang_status_AllocErr);
+        argId = node->sibling;
+        ++i;
+    }
+
+    while (argId != -1) {
+        gTree_Node *node = GLANG_NODE_BY_ID(argId);
+        node->var = varPool_allocInMem(p, argId);
+        GLANG_ASSERT_LOG(node->var != NULL, gLang_status_AllocErr);
+        argId = node->sibling;
+    }
+
+    GLANG_IS_OK(gLang_fillVarTable_internal_(ctx, node->child));
+
+    return gLang_status_OK;
+}
+
+static gLang_status gLang_fillVarTable_internal_(gLang *ctx, size_t rootId)
+{
+    GLANG_CHECK_SELF_PTR(ctx);
+    GLANG_ID_CHECK(rootId);
+    GLANG_ASSERT_LOG(gPtrValid(ctx->varTables), gLang_status_BadPtr);
+
+    varPool *p = ctx->varTables + ctx->varTablesCur;
     gLang_Node *node = &GLANG_NODE_BY_ID(rootId)->data;
     if (node->mode == gLang_Node_mode_var) {
         size_t lim = REG_CNT_ + t->inMemCnt;
         for (size_t i = 0; i <= lim; ++i) {
-            if (i == lim)
-                node->var = varPool_alloc(t, rootId);
+            if (i == lim) {
+                node->var = varPool_alloc(p, rootId);
+                GLANG_ASSERT_LOG(node->var != NULL, gLang_status_AllocErr);
+            }
             size_t nodeId = t->inReg[i].nodeId;
             if (!strcmp(node->varName, GLANG_NODE_BY_ID(nodeId)->data.varName)) {
                 node->var = GLANG_NODE_BY_ID(nodeId)->data.var;
@@ -974,98 +1006,198 @@ static gLang_status gLang_fillVarTable(gLang *ctx, size_t rootId)
 
     size_t childId = GLANG_NODE_BY_ID(rootId)->child;
     while (childId != -1) {
-        gLang_fillVarTable(ctx, childId);
+        GLANG_IS_OK(gLang_fillVarTable_internal_(ctx, childId));
         childId = GLANG_NODE_BY_ID(childId)->sibling;
     }
     return gLang_status_OK;
 }
 
-static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId)
+static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
 {
     GLANG_CHECK_SELF_PTR(ctx);
     GLANG_ID_CHECK(rootId);
 
+    varPool *p = ctx->varTables + ctx->varTablesCur;
     gLang_Node *node = &GLANG_NODE_BY_ID(rootId)->data;
     FILE *out = ctx->asmOut;
     size_t childId = GLANG_NODE_BY_ID(rootId)->child;
+    Var *tmpRes = NULL;
+    Var *res = NULL;
 
     if (node->mode == gLang_Node_mode_num) {
+        *res_out = varPool_alloc(p, -1);
+        *res_out->reg = REG_NONE_;
+        *res_out->offset = -1;
+        *res_out->num = node->value;
+        /*
         if (node->value < 0)
-            fprintf(out, "push 0%g\n", node->value);    //TODO check value type
+            fprintf(out, "push 0%g\n", node->value);
         else
             fprintf(out, "push %g\n", node->value);
+        */
 
     } else if (node->mode == gLang_Node_mode_var) {
+        *res_out = node->var;
+        /*
         fprintf(out, "push [(fx - %lu) * 8] ; (%s)\n", node->varId, node->varName);
+        */
 
-    } else if (node->mode == gLang_Node_mode_add) {
-        GLANG_IS_OK(gLang_compileExpr(ctx, childId));
+    } else if (node->mode == gLang_Node_mode_add || node->mode == gLang_Node_mode_mul) {
+        GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
+        if (*res_out->temp)
+            res = *res_out;
+        else
+            res = valPool_alloc(p, -1);
         childId = GLANG_NODE_BY_ID(childId)->sibling;
         while (childId != -1) {
-            GLANG_IS_OK(gLang_compileExpr(ctx, childId));
+            GLANG_IS_OK(gLang_compileExpr(ctx, childId, &tmpRes));
+
+            Command c;
+            if (node->mode == gLang_Node_mode_add)
+                c.opcode = ADD;
+            else
+                c.opcode = MUL;
+            c.first  = *res;
+            c.second = *tmpRes;
+            Arr_push(ctx->commands, c);
+            if (tmpRes->temp)
+                varPool_free(p, tmpRes);
+            /*
             fprintf(out, "add\n");
+            */
             childId = GLANG_NODE_BY_ID(childId)->sibling;
         }
+        *res_out = res;
 
-    } else if (node->mode == gLang_Node_mode_sub) {
+    } else if (node->mode == gLang_Node_mode_sub || node->mode == gLang_Node_mode_div || node->mode == gLang_Node_mode_exp) {
         size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
-        GLANG_IS_OK(gLang_compileExpr(ctx, childId));
-        GLANG_IS_OK(gLang_compileExpr(ctx, siblingId));
+        GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
+        GLANG_IS_OK(gLang_compileExpr(ctx, siblingId, &tmpRes));
+
+        if (*res_out->temp)
+            res = *res_out;
+        else
+            res = valPool_alloc(p, -1);
+
+        Command c;
+        if (node->mode == gLang_Node_mode_sub)
+            c.opcode = SUB;
+        else if (node->mode == gLang_Node_mode_div)
+            c.opcode = DIV;
+        else
+            c.opcode = POW;
+        c.first  = *res;
+        c.second = *tmpRes;
+        Arr_push(ctx->commands, c);
+        if (tmpRes->temp)
+            varPool_free(p, tmpRes);
+        /*
         fprintf(out, "sub\n");
-
-    } else if (node->mode == gLang_Node_mode_mul) {
-        GLANG_IS_OK(gLang_compileExpr(ctx, childId));
-        childId = GLANG_NODE_BY_ID(childId)->sibling;
-        while (childId != -1) {
-            GLANG_IS_OK(gLang_compileExpr(ctx, childId));
-            fprintf(out, "mul\n");
-            childId = GLANG_NODE_BY_ID(childId)->sibling;
-        }
-
-    } else if (node->mode == gLang_Node_mode_div) {
-        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
-        GLANG_IS_OK(gLang_compileExpr(ctx, childId));
-        GLANG_IS_OK(gLang_compileExpr(ctx, siblingId));
-        fprintf(out, "div\n");
-
-    } else if (node->mode == gLang_Node_mode_exp) {
-        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
-        GLANG_IS_OK(gLang_compileExpr(ctx, childId));
-        GLANG_IS_OK(gLang_compileExpr(ctx, siblingId));
-        fprintf(out, "pow\n");
+        */
+        *res_out = res;
 
     } else if (node->mode == gLang_Node_mode_func) {
         childId = GLANG_NODE_BY_ID(childId)->child;
-        while (childId != -1) {
-            GLANG_IS_OK(gLang_compileExpr(ctx, childId));
-            childId = GLANG_NODE_BY_ID(childId)->sibling;
-        }
-        fprintf(out, "call func_%s;\n", node->funcName);
+        size_t i = 0;
+        while (childId != -1 && i < 6) {                    // 6 == number of args passed via registers
+            GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
+            if (p->inReg[i].allocated) {
+                Command c;
+                c.opcode = PUSH;
+                c.first = p->inReg[i];
+                Arr_push(ctx->commands, c);
+            }
+            Command c;
+            c.opcode = MOV;
+            c.first = inReg[i];
+            c.second = **res_out;
+            Arr_push(ctx->commands, c);
+            if (*res_out->temp)
+                varPool_free(p, *res_out);
 
-    } else if (node->mode == gLang_Node_mode_less) {
+            childId = GLANG_NODE_BY_ID(childId)->sibling;
+            ++i;
+        }
+
+        while (childId != -1) {
+            GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
+
+            Command c;
+            c.opcode = PUSH;
+            c.first = **res_out;
+            Arr_push(ctx->commands, c);
+            if (*res_out->temp)
+                varPool_free(p, *res_out);
+
+            childId = GLANG_NODE_BY_ID(childId)->sibling;
+            ++i;
+        }
+
+        Command c;
+        c.opcode = CALL;
+        strncpy(c.name, node->funcName, MAX_LIT_LEN);
+        Arr_push(ctx->commands, c);
+        if (*res_out->temp)
+            varPool_free(p, *res_out);
+        /*
+        fprintf(out, "call func_%s;\n", node->funcName);
+        */
+
+    } else if (node->mode == gLang_Node_mode_less || node->mode == gLang_Node_mode_great) {
         size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
-        GLANG_IS_OK(gLang_compileExpr(ctx, childId));
-        GLANG_IS_OK(gLang_compileExpr(ctx, siblingId));
+        GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
+        GLANG_IS_OK(gLang_compileExpr(ctx, siblingId, &tmpRes));
+
+        Command c;
+        c.opcode = CMP;
+        c.first = **res_out;
+        c.second = *tmpRes;
+        Arr_push(ctx->commands, c);
+
+        if (*res_out->temp) {
+            res = *res_out;
+            if (tmpRes->temp)
+                varPool_free(p, tmpRes);
+        } else if (tmpRes->temp) {
+            res = tmpRes;
+        } else {
+            res = valPool_alloc(p, -1);
+        }
+
+        Command c;
+        c.opcode = MOV;
+        c.first = *res;
+        c.second.reg = REG_NONE_;
+        c.second.offset = -1;
+        c.second.num = 0;
+        Arr_push(ctx->commands, c);
+
+        Command c;
+        if (node->mode == gLang_Node_mode_less)
+            c.opcode = CMOVL;
+        else
+            c.opcode = CMOVG;
+        c.first = *res;
+        c.second.reg = REG_NONE_;
+        c.second.offset = -1;
+        c.second.num = 1;
+        Arr_push(ctx->commands, c);
+        /*
         fprintf(out, "cmp\n");
         fprintf(out, "mov ax, 0\n");
         fprintf(out, "cmovl ax, 1\n");
         fprintf(out, "push ax\n");
-
-    } else if (node->mode == gLang_Node_mode_great) {
-        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
-        GLANG_IS_OK(gLang_compileExpr(ctx, childId));
-        GLANG_IS_OK(gLang_compileExpr(ctx, siblingId));
-        fprintf(out, "cmp\n");
-        fprintf(out, "mov ax, 0\n");
-        fprintf(out, "cmovg ax, 1\n");
-        fprintf(out, "push ax\n");
+        */
+        *res_out = res;
 
     } else if (node->mode == gLang_Node_mode_keyword &&
                    node->keyword >= gLang_Node_keyword_sqrt &&
                    node->keyword < gLang_Node_keyword_CNT) {
-
+        assert(!"This feature is considered too sweet and left toll better days");      //TODO
         GLANG_IS_OK(gLang_compileExpr(ctx, childId));
+        /*
         fprintf(out, "%s\n", gLang_Node_keywordView[node->keyword]);
+        */
 
     } else {
         assert(!"This should never happen, PANIC!!1!");
@@ -1146,16 +1278,22 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
     return gLang_status_OK;
 }
 
-static gLang_status gLang_getArg(gLang *ctx, size_t siblingId)
+static gLang_status gLang_getArgs(gLang *ctx, size_t siblingId)
 {
     GLANG_CHECK_SELF_PTR(ctx);
     GLANG_ID_CHECK(siblingId);
 
     gTree_Node *node = GLANG_NODE_BY_ID(siblingId);
     if (node->sibling != -1) {
-        GLANG_IS_OK(gLang_getArg(ctx, node->sibling));
+        GLANG_IS_OK(gLang_getArgs(ctx, node->sibling));
     }
+
+    c.opcode = POP;
+    c.first = node->data.var;
+    Arr_push(ctx->commands, c);
+    /*
     fprintf(ctx->asmOut, "pop [(fx - %lu) * 8]; (%s)\n", node->data.varId, node->data.varName);
+    */
     return gLang_status_OK;
 }
 
@@ -1182,14 +1320,25 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
     ctx->varTables = (varPool*)calloc(cnt, sizeof(varPool));
     GLANG_ASSERT_LOG(ctx->varTables != NULL, gLang_status_AllocErr);
 
-    fprintf(out, "main:\n");
+    ctx->commands = gArr_new(50);
+    GLANG_ASSERT_LOG(ctx->commands != NULL, gLang_status_AllocErr);
+
+    Command c = {};
+    c.opcode = CALL;
+    gArr_push(ctx->commands, c);
+    c.opcode = RET;
+    gArr_push(ctx->commands, c);
+    /*
+    fprintf(out, "main:\n");                    // Equivalent in gAsm
     fprintf(out, "  call func_main\n");
     fprintf(out, "  out\n");
     fprintf(out, "  ret\n");
+    */
     funcRootId = GLANG_NODE_BY_ID(ctx->tree.root)->child;
     ctx->varTablesCur = 0;
     while (funcRootId != -1) {
         ctx->varTables[ctx->varTablesCur] = varPool_new(out);
+        GLANG_ASSERT_LOG(ctx->varTables[ctx->varTablesCur] != NULL, gLang_status_AllocErr);
         gLang_fillVarTable(ctx, funcRootId);
 
         gTree_Node *node = GLANG_NODE_BY_ID(funcRootId);
@@ -1198,17 +1347,38 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
             fprintf(ctx->logStream, "for func %s varTable len is %lu\n", node->data.funcName, len);
         #endif
 
+        c.opcode = LABLE;
+        strncpy(c.name, node->data.funcName, MAX_LIT_LEN);
+        gArr_push(ctx->commands, c);
+        c.opcode = ADD;
+        c.first.reg = RSP;
+        c.second.reg = REG_NONE_;
+        c.second.offset = -1;
+        c.second.num = len;
+        gArr_push(ctx->commands, c);
+        /*
         fprintf(out, "func_%s:\n", node->data.funcName);
         fprintf(out, "add fx, %lu\n", len);
+        */
         size_t argId = node->child;
         node = GLANG_NODE_BY_ID(argId);
         size_t blkId = node->sibling;
         argId = node->child;
 
+        c.opcode = POP;
+        c.first.reg = RAX;
+        gArr_push(ctx->commands, c);
+        /*
         fprintf(out, "pop ex\n");
+        */
         if (argId != -1)
-            GLANG_IS_OK(gLang_getArg(ctx, argId));
+            GLANG_IS_OK(gLang_getArgs(ctx, argId));
+        c.opcode = PUSH;
+        c.first.reg = RAX;
+        gArr_push(ctx->commands, c);
+        /*
         fprintf(out, "push ex\n");
+        */
 
         GLANG_IS_OK(gLang_compileBlk(ctx, blkId));
 

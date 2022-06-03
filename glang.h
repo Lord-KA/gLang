@@ -90,7 +90,7 @@ struct gLang_Node
     gLang_Node_keyword keyword;
     char funcName[GLANG_MAX_LIT_LEN];
     char  varName[GLANG_MAX_LIT_LEN];
-    size_t varId;                         /* To be filled by compiler; Id of a first node with same var in func */
+    Var    var;                                 /* To be filled by compiler; An intermediate structure that holds the position of var in register or memory */
     double value;
     size_t position;
 } typedef gLang_Node;
@@ -247,10 +247,7 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 #endif
 
 #include "commands.h"
-
-#define T Var
-#include "garray.h"
-#undef T
+#include "varpool.h"
 
 struct gLang {
     gTree       tree      = {};
@@ -260,7 +257,7 @@ struct gLang {
     size_t      labelCnt  = {};
     GENERIC(stack) LexemeIds = {};
     size_t         lexemeCur = {};
-    gArr           *varTables    = {};
+    varPool        *varTables    = {};
     size_t          varTablesCur = {};
     size_t          varTablesLen = {};
     Command *commands = {};

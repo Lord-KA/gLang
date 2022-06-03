@@ -955,22 +955,21 @@ static gLang_status gLang_fillVarTable(gLang *ctx, size_t rootId)
     GLANG_ID_CHECK(rootId);
     GLANG_ASSERT_LOG(gPtrValid(ctx->varTables), gLang_status_BadPtr);
 
-    gArr *vars = &(ctx->varTables[ctx->varTablesCur]);
-    GLANG_ASSERT_LOG(gPtrValid(vars), gLang_status_BadPtr);
+    varTable *t = ctx->varTables + ctx->varTablesCur;
+    GLANG_ASSERT_LOG(gPtrValid(t), gLang_status_BadPtr);
 
     gLang_Node *node = &GLANG_NODE_BY_ID(rootId)->data;
     if (node->mode == gLang_Node_mode_var) {
-        size_t i = 0;
-        for (i = 0; i < vars->len; ++i) {
-            size_t varId = vars->data[i].varId;
-            if (!strcmp(node->varName, GLANG_NODE_BY_ID(varId)->data.varName))
+        size_t lim = REG_CNT_ + t->inMemCnt;
+        for (size_t i = 0; i <= lim; ++i) {
+            if (i == lim)
+                node->var = varPool_alloc(t, rootId);
+            size_t nodeId = t->inReg[i].nodeId;
+            if (!strcmp(node->varName, GLANG_NODE_BY_ID(nodeId)->data.varName)) {
+                node->var = GLANG_NODE_BY_ID(nodeId)->data.var;
                 break;
+            }
         }
-        if (i == vars->len) {
-            Var v =                                                                     //TODO there is a need to rework whole varTable stuff, cause we need a different varPool for each func and maybe it should include whole varTable in it?
-            gArr_push(vars, rootId);
-        }
-        node->varId = i;
     }
 
     size_t childId = GLANG_NODE_BY_ID(rootId)->child;
@@ -1128,7 +1127,7 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
     } else if (node->mode == gLang_Node_mode_keyword &&
             node->keyword == gLang_Node_keyword_return) {
         GLANG_IS_OK(gLang_compileExpr(ctx, childId));
-        size_t offset = ctx->varTables[ctx->varTablesCur].len;
+        size_t offset = ctx->varTables[ctx->varTablesCur].inMemCnt;
         fprintf(out, "sub fx, %lu\n", offset);
         fprintf(out, "pop bx\n");
         fprintf(out, "pop ax\n");
@@ -1180,7 +1179,7 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
     ctx->asmOut = out;
     ctx->labelCnt = 0;
     ctx->varTablesLen = cnt;
-    ctx->varTables = (gArr*)calloc(cnt, sizeof(gArr));                //TODO define MAX_VARS
+    ctx->varTables = (varPool*)calloc(cnt, sizeof(varPool));
     GLANG_ASSERT_LOG(ctx->varTables != NULL, gLang_status_AllocErr);
 
     fprintf(out, "main:\n");
@@ -1190,11 +1189,11 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
     funcRootId = GLANG_NODE_BY_ID(ctx->tree.root)->child;
     ctx->varTablesCur = 0;
     while (funcRootId != -1) {
-        ctx->varTables[ctx->varTablesCur] = gArr_new(10);
+        ctx->varTables[ctx->varTablesCur] = varPool_new(out);
         gLang_fillVarTable(ctx, funcRootId);
 
         gTree_Node *node = GLANG_NODE_BY_ID(funcRootId);
-        size_t len = ctx->varTables[ctx->varTablesCur].len;
+        size_t len = ctx->varTables[ctx->varTablesCur].inMemCnt;
         #ifdef EXTRA_VERBOSE
             fprintf(ctx->logStream, "for func %s varTable len is %lu\n", node->data.funcName, len);
         #endif

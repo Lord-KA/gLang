@@ -2,13 +2,14 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <string.h>
 
 
 typedef enum {
     REG_NONE_ = 0,
-    RAX,            // Service
-    RBX,            // Service
-    RCX,            // Service
+    RAX,            // Reserved
+    RBX,            // Reserved
+    RCX,            // Reserved
     RDX,
     RSI,
     RDI,
@@ -26,16 +27,22 @@ typedef enum {
 } REGISTER_;
 
 typedef struct {
-    FILE *out;
-    bool inUse[REG_CNT_];
-} varPool;
-
-typedef struct {
     REGISTER_ reg;
     size_t offset;
     bool temp;
-    size_t varId;
+    bool allocated;
+    size_t nodeId;
 } Var;
+
+typedef struct {
+    FILE *out;
+    Var *inReg;
+    Var *inMem;
+    size_t inMemCap;
+    size_t inMemCnt;
+    size_t overall;
+} varPool;
+
 
 varPool *varPool_new(FILE *out)
 {
@@ -45,46 +52,78 @@ varPool *varPool_new(FILE *out)
     if (p == NULL)
         return p;
     p->out = out;
-    p->inUse[REG_NONE_] = true;
-    p->inUse[RAX] = true;
-    p->inUse[RBX] = true;
-    p->inUse[RCX] = true;
-    p->inUse[RSP] = true;
-    p->inUse[RBP] = true;
+    p->inMemCnt = 0;
+    p->inMemCap = 2;
+    p->overall  = 0;
+    p->inReg = (Var*)calloc(REG_CNT_ + p->inMemCap, sizeof(Var));
+    if (p->inReg == NULL) {
+        free(p->inReg);
+        free(p);
+        return NULL;
+    }
+    p->inMem = p->inReg + REG_CNT_;
+    p->inReg[REG_NONE_].allocated = true;
+    p->inReg[RAX].allocated = true;
+    p->inReg[RBX].allocated = true;
+    p->inReg[RCX].allocated = true;
+    p->inReg[RSP].allocated = true;
+    p->inReg[RBP].allocated = true;
     return p;
 }
 
 varPool *varPool_delete(varPool *p)
 {
     assert(p != NULL);
+    free(p->inReg);
     free(p);
     return NULL;
 }
 
-Var varPool_alloc(varPool *p)
+Var *varPool_alloc(varPool *p, size_t nodeId)
 {
     assert(p != NULL);
     size_t i;
-    for (i = 1; i < REG_CNT_ && p->inUse[i]; ++i);
+    for (i = 1; i < REG_CNT_ && p->inReg[i].allocated; ++i);
 
-    Var res = {};
+    Var *res = NULL;
     if (i == REG_CNT_) {
-        res.offset = 0x1234;            //TODO calc offset here
+        for (i = 0; i < p->inMemCap; ++i) {
+            if (!p->inMem[i].allocated)
+                break;
+        }
+        if (i == p->inMemCap) {
+            void *tmp = realloc(p->inReg, (REG_CNT_ + p->inMemCap * 2) * sizeof(Var));
+            if (tmp == NULL) {
+                return NULL;
+            }
+            p->inReg = (Var*)tmp;
+            p->inMem = p->inReg + REG_CNT_;
+            memset(p->inMem + p->inMemCap, 0, p->inMemCap * sizeof(Var));
+            p->inMemCap *= 2;
+        }
+        if (i + 1 > p->inMemCnt)
+            p->inMemCnt = i + 1;
+        res = p->inMem + i;
+        res->offset = i;
+        res->reg = REG_NONE_;
     } else {
-        res.reg = (REGISTER_)i;
-        res.offset = -1;
+        res = p->inReg + i;
+        res->reg = (REGISTER_)i;
+        res->offset = -1;
     }
-    p->inUse[i] = true;
+    assert(!res->allocated);
+    res->allocated = true;
+    res->temp = (nodeId == -1);
+    res->nodeId = nodeId;
+    ++p->overall;
     return res;
 }
 
-void varPool_free(varPool *p, Var v)
+Var *varPool_free(varPool *p, Var *v)
 {
     assert(p != NULL);
-    assert(v.reg != REG_CNT_ && v.reg > RCX && v.reg != RSP && v.reg != RBP);
-    if (v.reg == REG_NONE_) {
-        //TODO free reg offset?
-    } else {
-        p->inUse[v.reg] = false;
-    }
+    assert(v->reg != REG_CNT_ && v->reg > RCX && v->reg != RSP && v->reg != RBP);
+    v->allocated = false;
+    --p->overall;
+    return NULL;
 }

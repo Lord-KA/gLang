@@ -27,9 +27,12 @@ bool gTree_printData(gLang_Node data, FILE *out)
         fprintf(out, "| {\'%s\'} ", data.funcName);
     else if (data.mode == gLang_Node_mode_keyword)
         fprintf(out, "| {\'%s\'} ", gLang_Node_keywordView[data.keyword]);
-    else if (data.mode == gLang_Node_mode_var)
-        fprintf(out, "| {\'%s\'} ", data.varName);
-
+    else if (data.mode == gLang_Node_mode_var) {
+        if (data.var == NULL)
+            fprintf(out, "| {\'%s\' | NULL} ", data.varName);
+        else
+            fprintf(out, "| {\'%s\' | %s | %zu} ", data.varName, REGISTER_MSG[data.var->reg], data.var->offset);
+    }
     return 0;
 }
 
@@ -76,6 +79,9 @@ gLang_status gLang_dtor(gLang *ctx)
         ctx->varTables = NULL;
     }
 
+    if (gPtrValid(ctx->commands))
+        gArr_delete(ctx->commands);
+
     return gLang_status_OK;
 }
 
@@ -92,7 +98,7 @@ gLang_status gLang_lexer(gLang *ctx, const char *buffer)
 
     while (*cur != '\0') {
         #ifdef EXTRA_VERBOSE
-            fprintf(ctx->logStream, "cur = %s\n", cur);
+            fprintf(ctx->logStream, "\tcur = #%s#\n", cur);
         #endif
         if (isspace(*cur)) {
             ++cur;
@@ -106,33 +112,32 @@ gLang_status gLang_lexer(gLang *ctx, const char *buffer)
         bool foundLit = false;
         for (size_t i = gLang_Node_mode_add; i < gLang_Node_mode_var; ++i) {
             /* one-symbol literals case */
+            gLang_Node *prev = NULL;
             if (*cur == '-') {
-                if (ctx->LexemeIds.len <= 1)
-                    break;
-                gLang_Node *prev = &GLANG_NODE_BY_ID(ctx->LexemeIds.data[ctx->LexemeIds.len - 2])->data;
-                if (prev->mode == gLang_Node_mode_keyword ||
-                        (prev->mode >= gLang_Node_mode_add && prev->mode < gLang_Node_mode_var &&
-                         prev->mode != gLang_Node_mode_clBrack))
-                    break;
-
-
+                if (ctx->LexemeIds.len < 2) {
+                    goto forEnd;
+                }
+                prev = &GLANG_NODE_BY_ID(ctx->LexemeIds.data[ctx->LexemeIds.len - 2])->data;
+                if (prev->mode != gLang_Node_mode_num && prev->mode != gLang_Node_mode_var)
+                    goto forEnd;
             }
             if (*gLang_Node_modeView[i] == *cur) {
                 node->mode = (gLang_Node_mode)i;
                 foundLit = true;
                 ++cur;
-                break;
+                goto forEnd;
             }
         }
+forEnd:
         if (foundLit) {
             #ifdef EXTRA_VERBOSE
-                fprintf(ctx->logStream, "Found lit!\n");
-                fprintf(ctx->logStream, "\tcur = #%s#\n", cur);
+                fprintf(ctx->logStream, "\t\tFound lit (%zu)!\n", ctx->LexemeIds.len);
+                fprintf(ctx->logStream, "\t\tcur = #%s#\n", cur);
             #endif
             continue;
         }
 
-        char *litEnd = cur;
+        char *litEnd = cur + 1;
         while (!GLANG_IS_DELIM(litEnd))
             ++litEnd;
         char literal[GLANG_MAX_LIT_LEN] = "";
@@ -141,6 +146,18 @@ gLang_status gLang_lexer(gLang *ctx, const char *buffer)
             GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_UnknownLex);
         }
         strncpy(literal, cur, litEnd - cur);
+        if (*cur == '-') {
+            fprintf(stderr, "HERE! literal len = %zu\n", litEnd - cur);
+            char *iter = cur + 1;
+            while (iter != litEnd && isdigit(*iter))
+                ++iter;
+            if (iter == litEnd) {
+                node->mode = gLang_Node_mode_num;
+                node->value = strtol(literal, NULL, 0);
+                cur = litEnd;
+                continue;
+            }
+        }
 
         if (isdigit(*cur)) {
             /* numeric literal case */
@@ -703,7 +720,6 @@ gLang_status gLang_optimize(gLang *ctx, const size_t rootId)
     GLANG_ID_CHECK(rootId);
 
     size_t childId = GLANG_NODE_BY_ID(rootId)->child;
-
     while (childId != -1) {
         size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
         gLang_optimize(ctx, childId);
@@ -945,6 +961,7 @@ gLang_status gLang_optimize(gLang *ctx, const size_t rootId)
             childId = siblingId;
         }
     }
+
     return gLang_status_OK;
 }
 
@@ -958,14 +975,15 @@ static gLang_status gLang_fillVarTable_internal_(gLang *ctx, size_t rootId)
     gLang_Node *node = &GLANG_NODE_BY_ID(rootId)->data;
     if (node->mode == gLang_Node_mode_var) {
         size_t lim = REG_CNT_ + p->inMemCnt;
-        for (size_t i = 0; i <= lim; ++i) {
+        for (size_t i = 1; i <= lim; ++i) {
             if (i == lim) {
                 node->var = varPool_alloc(p, rootId);
                 GLANG_ASSERT_LOG(node->var != NULL, gLang_status_AllocErr);
             }
-            size_t nodeId = p->inReg[i].nodeId;
-            if (!strcmp(node->varName, GLANG_NODE_BY_ID(nodeId)->data.varName)) {
-                node->var = GLANG_NODE_BY_ID(nodeId)->data.var;
+            size_t varId = p->inReg[i].nodeId;
+            if (p->inReg[i].allocated && !strcmp(node->varName, GLANG_NODE_BY_ID(varId)->data.varName)) {
+                fprintf(stderr, "HERE!\n");
+                node->var = GLANG_NODE_BY_ID(varId)->data.var;
                 break;
             }
         }
@@ -981,14 +999,16 @@ static gLang_status gLang_fillVarTable_internal_(gLang *ctx, size_t rootId)
 
 static gLang_status gLang_fillVarTable(gLang *ctx, size_t rootId)
 {
+    fprintf(stderr, "rootId = %zu\n", rootId);
     GLANG_CHECK_SELF_PTR(ctx);
     GLANG_ID_CHECK(rootId);
     GLANG_ASSERT_LOG(gPtrValid(ctx->varTables), gLang_status_BadPtr);
 
     varPool *p = ctx->varTables[ctx->varTablesCur];
     size_t argId = GLANG_NODE_BY_ID(rootId)->child;
-    gTree_Node *node = GLANG_NODE_BY_ID(rootId);
+    gTree_Node *node = GLANG_NODE_BY_ID(argId);
     argId = node->child;
+    fprintf(stderr, "argId = %zu\n", argId);
 
     size_t i = 0;
     while (argId != -1 && i < 6) {          // 6 == number of args passed via registers
@@ -1004,9 +1024,11 @@ static gLang_status gLang_fillVarTable(gLang *ctx, size_t rootId)
         node->data.var = varPool_allocInMem(p, argId);
         GLANG_ASSERT_LOG(node->data.var != NULL, gLang_status_AllocErr);
         argId = node->sibling;
+        ++i;
     }
+    fprintf(stderr, "i = %zu\n", i);
 
-    GLANG_IS_OK(gLang_fillVarTable_internal_(ctx, node->child));
+    GLANG_IS_OK(gLang_fillVarTable_internal_(ctx, rootId));
 
     return gLang_status_OK;
 }
@@ -1025,6 +1047,7 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
 
     if (node->mode == gLang_Node_mode_num) {
         *res_out = varPool_alloc(p, -1);
+        GLANG_ASSERT_LOG(*res_out != NULL, gLang_status_AllocErr);
         (*res_out)->reg = REG_NONE_;
         (*res_out)->offset = -1;
         (*res_out)->num = node->value;
@@ -1037,16 +1060,19 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
 
     } else if (node->mode == gLang_Node_mode_var) {
         *res_out = node->var;
+        GLANG_ASSERT_LOG(*res_out != NULL, gLang_status_AllocErr);
         /*
         fprintf(out, "push [(fx - %lu) * 8] ; (%s)\n", node->varId, node->varName);
         */
 
     } else if (node->mode == gLang_Node_mode_add || node->mode == gLang_Node_mode_mul) {
         GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
-        if ((*res_out)->temp)
+        if ((*res_out)->temp) {
             res = *res_out;
-        else
+        } else {
             res = varPool_alloc(p, -1);
+            GLANG_ASSERT_LOG(res != NULL, gLang_status_AllocErr);
+        }
         childId = GLANG_NODE_BY_ID(childId)->sibling;
         while (childId != -1) {
             GLANG_IS_OK(gLang_compileExpr(ctx, childId, &tmpRes));
@@ -1073,10 +1099,12 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
         GLANG_IS_OK(gLang_compileExpr(ctx, siblingId, &tmpRes));
 
-        if ((*res_out)->temp)
+        if ((*res_out)->temp) {
             res = *res_out;
-        else
+        } else {
             res = varPool_alloc(p, -1);
+            GLANG_ASSERT_LOG(res != NULL, gLang_status_AllocErr);
+        }
 
         Command c = {};
         if (node->mode == gLang_Node_mode_sub)
@@ -1161,6 +1189,7 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
             res = tmpRes;
         } else {
             res = varPool_alloc(p, -1);
+            GLANG_ASSERT_LOG(res != NULL, gLang_status_AllocErr);
         }
 
         c.opcode = MOV;
@@ -1393,7 +1422,7 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
 
     size_t funcRootId = GLANG_NODE_BY_ID(ctx->tree.root)->child;
     if (funcRootId == -1) {
-        fprintf(ctx->logStream, "There is nothing to compile, have you ran the parser?\n");
+        fprintf(ctx->logStream, "There is nothing to compile, have you run the parser?\n");
         return gLang_status_NothingToDo;
     }
 
@@ -1433,7 +1462,8 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
         gTree_Node *node = GLANG_NODE_BY_ID(funcRootId);
         size_t offset = ctx->varTables[ctx->varTablesCur]->inMemCnt;
         #ifdef EXTRA_VERBOSE
-            fprintf(ctx->logStream, "for func %s varTable len is %lu\n", node->data.funcName, offset);
+            fprintf(ctx->logStream, "for func %s varTable len is %lu | offset is %zu\n", node->data.funcName, ctx->varTables[ctx->varTablesCur]->overall, offset);
+            varPool_dump(ctx->varTables[ctx->varTablesCur], ctx->logStream);
         #endif
 
         c.opcode = LABLE;
@@ -1442,7 +1472,7 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
 
         c.opcode = PUSH;
         c.first.reg = RBP;
-        gArr_push(ctx->commands, c);
+        gArr_push(ctx->commands, c);                    //TODO push all registers that are to be preserved
 
         c.opcode = MOV;
         c.first.reg = RBP;
@@ -1454,7 +1484,7 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
         c.second.reg = REG_NONE_;
         c.second.offset = -1;
         c.second.num = offset;
-        gArr_push(ctx->commands, c);
+        gArr_push(ctx->commands, c);                    //TODO don't forget to change offset after precompile finished couning it
         /*
         fprintf(out, "func_%s:\n", node->data.funcName);
         fprintf(out, "add fx, %lu\n", offset);
@@ -1485,6 +1515,55 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
         funcRootId = GLANG_NODE_BY_ID(funcRootId)->sibling;
     }
 
+    return gLang_status_OK;
+}
+
+gLang_status gLang_commandsDump(gLang *ctx, FILE *out)
+{
+    GLANG_CHECK_SELF_PTR(ctx);
+    GLANG_ASSERT_LOG(gPtrValid(out), gLang_status_BadPtr);
+
+    if (ctx->commands == NULL || ctx->commands->len == 0 || ctx->commands->len == -1) {
+        fprintf(ctx->logStream, "There are no commands, have you run the compiler?\n");
+        return gLang_status_NothingToDo;
+    }
+
+    for (size_t i = 0; i < ctx->commands->len; ++i) {
+        Command c = ctx->commands->data[i];
+        fprintf(out, "%s", OPCODE_MSG[c.opcode]);
+        if (c.opcode == LABLE) {
+            fprintf(out, " | %zu\n", c.labelId);
+            continue;
+        }
+        if (c.opcode == CALL) {
+            fprintf(out, " | %s\n", c.name);
+            continue;
+        }
+        if (OPCODE_ARGS[c.opcode] > 0) {
+            Var v = c.first;
+
+            if (v.reg != REG_NONE_) {
+                fprintf(out, " %s", REGISTER_MSG[v.reg]);
+            } else if (v.offset != -1) {
+                fprintf(out, " [RBP - %zu]", v.offset);
+            } else {
+                fprintf(out, " %ld", v.num);
+            }
+        }
+        if (OPCODE_ARGS[c.opcode] > 1) {
+            fprintf(out, ",");
+            Var v = c.first;
+
+            if (v.reg != REG_NONE_) {
+                fprintf(out, " %s", REGISTER_MSG[v.reg]);
+            } else if (v.offset != -1) {
+                fprintf(out, " [RBP - %zu]", v.offset);
+            } else {
+                fprintf(out, " %ld", v.num);
+            }
+        }
+        fprintf(out, "\n");
+    }
     return gLang_status_OK;
 }
 

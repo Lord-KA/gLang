@@ -23,8 +23,8 @@ quadric_solver(a, b, c)
     det = b^2 - 4 * a * c;
         if (det > 0) {
         two = 2;
-        print ((-1 * b - sqrt(det)) / two) / a;
-        print ((-1 * b + sqrt(det)) / two) / a;
+        print ((-1 * b - (det)) / two) / a;
+        print ((-1 * b + (det)) / two) / a;
         return 0;
     }
     return 1;

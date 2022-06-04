@@ -30,5 +30,6 @@ int main()
     }
     fprintf(stderr, "inMemCap = %zu | inMemCnt = %zu | overall = %zu\n", p->inMemCap, p->inMemCnt, p->overall);
 
+    varPool_dump(p, stderr);
     p = varPool_delete(p);
 }

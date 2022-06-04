@@ -33,10 +33,30 @@ typedef enum {
     REG_CNT_
 } REGISTER_;
 
+static const char REGISTER_MSG[REG_CNT_][10] = {
+    "REG_NONE",
+    "RDI",
+    "RSI",
+    "RDX",
+    "RCX",
+    "R8",
+    "R9",
+    "RBX",            // Reserved     // Registers preserved
+    "RSP",            // Service
+    "RBP",            // Service
+    "R12",
+    "R13",
+    "R14",
+    "R15",
+    "RAX",            // Reserved
+    "R10",
+    "R11",
+};
+
 typedef struct {
     REGISTER_ reg;
     size_t offset;
-    size_t num;
+    long num;
     bool temp;
     bool allocated;
     size_t nodeId;
@@ -61,5 +81,7 @@ Var *varPool_allocInMem(varPool *p, size_t nodeId);
 Var *varPool_alloc(varPool *p, size_t nodeId);
 
 Var *varPool_free(varPool *p, Var *v);
+
+void varPool_dump(varPool *p, FILE *out);
 
 #endif

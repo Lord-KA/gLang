@@ -88,6 +88,20 @@ int main(int argc, char **argv)
 
     gLang_compile(ctx, out);
 
+    fprintf(stderr, "\n\ncommands len = %zu\n", ctx->commands->len);
+
+    #ifdef EXTRA_VERBOSE
+        gvOut = fopen("varsfilled.gv", "w");
+        gTree_dumpPoolGraphViz(&ctx->tree, gvOut);
+        fclose(gvOut);
+    #endif
+
+    #ifdef EXTRA_VERBOSE
+        gvOut = fopen("commandsDump.txt", "w");
+        gLang_commandsDump(ctx, gvOut);
+        fclose(gvOut);
+    #endif
+
 finish:
     fclose(out);
     gLang_dtor(ctx);

@@ -325,3 +325,5 @@ static gLang_status gLang_compileBlk(gLang *ctx, size_t siblingId);
 static gLang_status gLang_getArgs(gLang *ctx, size_t siblingId);
 
 gLang_status gLang_compile(gLang *ctx, FILE *out);
+
+gLang_status gLang_commandsDump(gLang *ctx, FILE *out);

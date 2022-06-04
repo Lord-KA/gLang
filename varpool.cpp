@@ -9,7 +9,7 @@ varPool *varPool_new(FILE *out)
         return p;
     p->out = out;
     p->inMemCnt = 0;
-    p->inMemCap = 2;
+    p->inMemCap = 20;           //TODO
     p->overall  = 0;
     p->inReg = (Var*)calloc(REG_CNT_ + p->inMemCap, sizeof(Var));
     if (p->inReg == NULL) {
@@ -17,11 +17,15 @@ varPool *varPool_new(FILE *out)
         free(p);
         return NULL;
     }
+    for (size_t i = 0; i < REG_CNT_; ++i) {
+        p->inReg[i].reg = (REGISTER_)i;
+        p->inReg[i].offset = -1;
+        p->inReg[i].num = 0;
+    }
     p->inMem = p->inReg + REG_CNT_;
     p->inReg[REG_NONE_].allocated = true;
     p->inReg[RAX].allocated = true;
     p->inReg[RBX].allocated = true;
-    p->inReg[RCX].allocated = true;
     p->inReg[RSP].allocated = true;
     p->inReg[RBP].allocated = true;
     return p;
@@ -78,8 +82,6 @@ Var *varPool_alloc(varPool *p, size_t nodeId)
     Var *res = p->inReg + i;
     assert(!res->allocated);
 
-    res->reg = (REGISTER_)i;
-    res->offset = -1;
     res->allocated = true;
     res->temp = (nodeId == -1);
     res->nodeId = nodeId;
@@ -91,9 +93,29 @@ Var *varPool_alloc(varPool *p, size_t nodeId)
 Var *varPool_free(varPool *p, Var *v)
 {
     assert(p != NULL);
-    assert(v->reg != REG_CNT_ && v->reg > RCX && v->reg != RSP && v->reg != RBP);
+    assert(v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != RBX);
     assert(v->temp);
     v->allocated = false;
     --p->overall;
     return NULL;
+}
+
+void varPool_dump(varPool *p, FILE *out)
+{
+    assert(p != NULL);
+    assert(out != NULL);
+
+    fprintf(out, "varPool dump:\ninMemCnt = %zu\ninMemCap = %zu\noverall = %zu\n\n", p->inMemCnt, p->inMemCap, p->overall);
+    for (size_t i = 0; i < REG_CNT_; ++i) {
+        Var *v = p->inReg + i;
+        if (v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != RBX) {
+            fprintf(stderr, "%s (%d)\t| offset = %zu\t| num = %zu\t| temp = %d\t| allocated = %d\t| nodeId = %zu\n", REGISTER_MSG[v->reg], v->reg, v->offset, v->num, v->temp, v->allocated, v->nodeId);
+        }
+    }
+    for (size_t i = 0; i < p->inMemCap; ++i) {
+        Var *v = p->inMem + i;
+        if (v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != RBX) {
+            fprintf(stderr, "%s (%d)\t| offset = %zu\t| num = %zu\t| temp = %d\t| allocated = %d\t| nodeId = %zu\n", REGISTER_MSG[v->reg], v->reg, v->offset, v->num, v->temp, v->allocated, v->nodeId);
+        }
+    }
 }

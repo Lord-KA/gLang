@@ -67,7 +67,7 @@ if(NOT gspu_POPULATED)
   add_subdirectory(${gspu_SOURCE_DIR})
 endif()
 
-add_executable(glang glang-main.cpp glang.cpp glang.h)
+add_executable(glang glang-main.cpp glang.cpp glang.h varpool.cpp varpool.h commands.h)
 
 add_custom_command(
   OUTPUT "assembler"

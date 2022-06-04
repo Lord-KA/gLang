@@ -1,8 +1,13 @@
+#ifndef GARRAY_H
+#define GARRAY_H
+
 #include <stdlib.h>
 #include <assert.h>
 #include <stdio.h>
 
+#ifndef T
 #define T size_t
+#endif
 
 typedef struct {
     T *data;
@@ -10,7 +15,7 @@ typedef struct {
     size_t capacity;
 } gArr;
 
-gArr *gArr_new(size_t cap)
+static gArr *gArr_new(size_t cap)
 {
     gArr *arr = (gArr*)calloc(1, sizeof(gArr));
     if (arr == NULL)
@@ -25,7 +30,7 @@ gArr *gArr_new(size_t cap)
     return arr;
 }
 
-gArr *gArr_delete(gArr *arr)
+static gArr *gArr_delete(gArr *arr)
 {
     assert(arr != NULL);
     free(arr->data);
@@ -33,7 +38,7 @@ gArr *gArr_delete(gArr *arr)
     return NULL;
 }
 
-int gArr_push(gArr *arr, T elem)        // returns 0 if OK, 1 otherwise
+static int gArr_push(gArr *arr, T elem)        // returns 0 if OK, 1 otherwise
 {
     assert(arr != NULL);
     if (arr->len >= arr->capacity) {
@@ -47,3 +52,4 @@ int gArr_push(gArr *arr, T elem)        // returns 0 if OK, 1 otherwise
     ++arr->len;
     return 0;
 }
+#endif

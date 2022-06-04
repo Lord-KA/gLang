@@ -1,3 +1,6 @@
+#ifndef COMMANDS_H
+#define COMMANDS_H
+
 #include <stdlib.h>
 #include "varpool.h"
 
@@ -6,8 +9,10 @@ typedef enum {
     #define OP_DEF(name, ...) name,
         #include "opcodes.h"
     #undef OP_DEF
+    OUT,
+    POW,
     EXIT,
-    LABEL,
+    LABLE,
     OP_CNT_
 } OPCODE_;
 
@@ -17,5 +22,8 @@ typedef struct {
     Var second;
     Var third;
     size_t jmpId;
+    size_t labelId;
     char name[100];         //TODO
 } Command;
+
+#endif

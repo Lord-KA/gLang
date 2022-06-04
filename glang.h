@@ -6,6 +6,13 @@
 
 #include "gstack.h"
 
+#include "commands.h"
+#include "varpool.h"
+
+#define T Command
+#include "garray.h"
+#undef T
+
 static const size_t MAX_LINE_LEN = 1000;
 static const size_t GLANG_MAX_LIT_LEN = 100;
 static const size_t GLANG_LEX_LIM = 1000;
@@ -90,7 +97,7 @@ struct gLang_Node
     gLang_Node_keyword keyword;
     char funcName[GLANG_MAX_LIT_LEN];
     char  varName[GLANG_MAX_LIT_LEN];
-    Var    var;                                 /* To be filled by compiler; An intermediate structure that holds the position of var in register or memory */
+    Var   *var;                                 /* To be filled by compiler; An intermediate structure that holds the position of var in register or memory */
     double value;
     size_t position;
 } typedef gLang_Node;
@@ -154,12 +161,12 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 #define GLANG_ASSERT_LOG(expr, errCode) ({                                           \
         bool macroRes = expr;                                                         \
         if (!macroRes && errCode >= gLang_status_ParsingErr_UnknownLex && errCode <= gLang_status_ParsingErr_NoSemicolon)\
-            fprintf(context->logStream, "Error in lexeme No. %lu:\n", GLANG_CUR_NODE_ID());\
+            fprintf(ctx->logStream, "Error in lexeme No. %lu:\n", GLANG_CUR_NODE_ID());\
         if (errCode >= gLang_status_CNT || errCode < 0)  {                             \
             ASSERT_LOG(false, gLang_status_CNT,                                         \
-                    gLang_statusMsg[gLang_status_CNT], context->logStream);              \
+                    gLang_statusMsg[gLang_status_CNT], ctx->logStream);              \
         }                                                                                 \
-        ASSERT_LOG(macroRes, errCode, gLang_statusMsg[errCode], context->logStream);           \
+        ASSERT_LOG(macroRes, errCode, gLang_statusMsg[errCode], ctx->logStream);           \
     })
 #else
 #define GLANG_ASSERT_LOG(expr, errCode) ASSERT_LOG(expr, errCode, gLang_statusMsg[errCode], NULL)
@@ -176,7 +183,7 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 #define GLANG_NODE_BY_ID(macroId) ({                                                                    \
     assert(macroId != -1);                                                                               \
     gTree_Node *macroNode = NULL;                                                                         \
-    GLANG_ASSERT_LOG(gObjPool_get(&context->tree.pool, (macroId), &macroNode) == gObjPool_status_OK,       \
+    GLANG_ASSERT_LOG(gObjPool_get(&ctx->tree.pool, (macroId), &macroNode) == gObjPool_status_OK,       \
                             gLang_status_ObjPoolErr);                                                       \
     assert(gPtrValid(macroNode));                                                                            \
     macroNode;                                                                                                \
@@ -186,9 +193,9 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 #define GLANG_POOL_ALLOC() ({                                                                 \
     size_t macroId = -1;                                                                       \
     gTree_Node *macroNode = NULL;                                                               \
-    GLANG_ASSERT_LOG(gObjPool_alloc(&context->tree.pool, &macroId) == gObjPool_status_OK,        \
+    GLANG_ASSERT_LOG(gObjPool_alloc(&ctx->tree.pool, &macroId) == gObjPool_status_OK,        \
                             gLang_status_ObjPoolErr);                                             \
-    GLANG_ASSERT_LOG(gObjPool_get(&context->tree.pool, macroId, &macroNode) == gObjPool_status_OK, \
+    GLANG_ASSERT_LOG(gObjPool_get(&ctx->tree.pool, macroId, &macroNode) == gObjPool_status_OK, \
                             gLang_status_ObjPoolErr);                                               \
     macroNode->sibling = -1;                                                                         \
     macroNode->parent  = -1;                                                                          \
@@ -201,7 +208,7 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 #define GLANG_POOL_FREE(macroId)
 #else
 #define GLANG_POOL_FREE(macroId) ({                                                          \
-    GLANG_ASSERT_LOG(gObjPool_free(&context->tree.pool, macroId) == gObjPool_status_OK,       \
+    GLANG_ASSERT_LOG(gObjPool_free(&ctx->tree.pool, macroId) == gObjPool_status_OK,       \
                             gLang_status_ObjPoolErr);                                          \
 })
 #endif
@@ -211,47 +218,41 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 })
 
 
-#define GLANG_ID_CHECK(id) GLANG_ASSERT_LOG(gObjPool_idValid(&context->tree.pool, id), gLang_status_BadId)
+#define GLANG_ID_CHECK(id) GLANG_ASSERT_LOG(gObjPool_idValid(&ctx->tree.pool, id), gLang_status_BadId)
 
 #define GLANG_IS_DELIM(macroCur) (*macroCur == '\0' || isspace(*macroCur) || strnConsistsChrs(macroCur, GLANG_DELIMS_LIST, 1, strlen(GLANG_DELIMS_LIST)))
 
 #define GLANG_CUR_NODE() ({                                                                         \
     gLang_Node *macroNode = NULL;                                                                    \
-    if (context->lexemeCur < context->LexemeIds.len)                                                  \
-        macroNode = &(GLANG_NODE_BY_ID(context->LexemeIds.data[context->lexemeCur])->data);            \
+    if (ctx->lexemeCur < ctx->LexemeIds.len)                                                  \
+        macroNode = &(GLANG_NODE_BY_ID(ctx->LexemeIds.data[ctx->lexemeCur])->data);            \
     macroNode;                                                                                          \
 })
 
 #define GLANG_CUR_NODE_ID() ({                                                                      \
     size_t macroNodeId = -1;                                                                         \
-    if (context->lexemeCur < context->LexemeIds.len)                                                  \
-        macroNodeId = context->LexemeIds.data[context->lexemeCur];                                     \
+    if (ctx->lexemeCur < ctx->LexemeIds.len)                                                  \
+        macroNodeId = ctx->LexemeIds.data[ctx->lexemeCur];                                     \
     macroNodeId;                                                                                        \
 })
 
 #ifdef EXTRA_VERBOSE
 #define GLANG_PARSER_CHECK() ({                                                                 \
-    fprintf(context->logStream, "%s curLit = %lu\n", __func__, GLANG_CUR_NODE_ID());             \
-    GLANG_CHECK_SELF_PTR(context);                                                                \
+    fprintf(ctx->logStream, "%s curLit = %lu\n", __func__, GLANG_CUR_NODE_ID());             \
+    GLANG_CHECK_SELF_PTR(ctx);                                                                \
     GLANG_ID_CHECK(rootId);                                                                        \
     GLANG_ASSERT_LOG(rootId != -1, gLang_status_ParsingErr_BadRootId);                              \
-    GLANG_ASSERT_LOG(context->lexemeCur < context->LexemeIds.len, gLang_status_ParsingErr_BadCur);   \
+    GLANG_ASSERT_LOG(ctx->lexemeCur < ctx->LexemeIds.len, gLang_status_ParsingErr_BadCur);   \
 })
 #else
 #define GLANG_PARSER_CHECK() ({                                                                 \
-    GLANG_CHECK_SELF_PTR(context);                                                               \
+    GLANG_CHECK_SELF_PTR(ctx);                                                               \
     GLANG_ID_CHECK(rootId);                                                                       \
     GLANG_ASSERT_LOG(rootId != -1, gLang_status_ParsingErr_BadRootId);                             \
-    GLANG_ASSERT_LOG(context->lexemeCur < context->LexemeIds.len, gLang_status_ParsingErr_BadCur);  \
+    GLANG_ASSERT_LOG(ctx->lexemeCur < ctx->LexemeIds.len, gLang_status_ParsingErr_BadCur);  \
 })
 #endif
 
-#include "commands.h"
-#include "varpool.h"
-
-#define T Command
-#include "garray.h"
-#undef T
 
 struct gLang {
     gTree       tree      = {};
@@ -261,66 +262,66 @@ struct gLang {
     size_t      labelCnt  = {};
     GENERIC(stack) LexemeIds = {};
     size_t         lexemeCur = {};
-    varPool        *varTables    = {};
+    varPool       **varTables    = {};
     size_t          varTablesCur = {};
     size_t          varTablesLen = {};
     gArr  *commands = {};
 } typedef gLang;
 
 
-gLang_status gLang_ctor(gLang *context, FILE *newLogStream);
+gLang_status gLang_ctor(gLang *ctx, FILE *newLogStream);
 
-gLang_status gLang_dtor(gLang *context);
-
-
-gLang_status gLang_lexer(gLang *context, const char *buffer);
+gLang_status gLang_dtor(gLang *ctx);
 
 
-gLang_status gLang_parser(gLang *context);
-
-static gLang_status gLang_parser_funcDef(gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_gram (gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_stmnt(gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_assig(gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_if   (gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_expr (gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_cmp  (gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_prior(gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_expn (gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_term (gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_func (gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_while(gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_blk  (gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_retrn(gLang *context, size_t rootId);
-
-static gLang_status gLang_parser_print(gLang *context, size_t rootId);
+gLang_status gLang_lexer(gLang *ctx, const char *buffer);
 
 
-gLang_status gLang_optimize(gLang *context, const size_t rootId);
+gLang_status gLang_parser(gLang *ctx);
+
+static gLang_status gLang_parser_funcDef(gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_gram (gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_stmnt(gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_assig(gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_if   (gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_expr (gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_cmp  (gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_prior(gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_expn (gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_term (gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_func (gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_while(gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_blk  (gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_retrn(gLang *ctx, size_t rootId);
+
+static gLang_status gLang_parser_print(gLang *ctx, size_t rootId);
 
 
-static gLang_status gLang_fillVarTable(gLang *context, size_t rootId);
+gLang_status gLang_optimize(gLang *ctx, const size_t rootId);
 
 
-static gLang_status gLang_compileExpr(gLang *context, size_t rootId);
+static gLang_status gLang_fillVarTable(gLang *ctx, size_t rootId);
 
-static gLang_status gLang_compileStmnt(gLang *context, size_t rootId);
 
-static gLang_status gLang_compileBlk(gLang *context, size_t siblingId);
+static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId);
 
-static gLang_status gLang_getArgs(gLang *context, size_t siblingId);
+static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId);
 
-gLang_status gLang_compile(gLang *context, FILE *out);
+static gLang_status gLang_compileBlk(gLang *ctx, size_t siblingId);
+
+static gLang_status gLang_getArgs(gLang *ctx, size_t siblingId);
+
+gLang_status gLang_compile(gLang *ctx, FILE *out);

@@ -254,6 +254,11 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 #endif
 
 
+#define PUSH_COMMAND(c) ({         \
+    c.line = __LINE__;              \
+    gArr_push(ctx->commands, c);     \
+})
+
 struct gLang {
     gTree       tree      = {};
     FILE       *logStream = {};

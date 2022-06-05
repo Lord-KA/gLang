@@ -27,7 +27,7 @@ typedef enum {
     R15,
 
     RAX,            // Reserved
-    R10,
+    R10,            // Reserved
     R11,
 
     REG_CNT_
@@ -49,7 +49,7 @@ static const char REGISTER_MSG[REG_CNT_][10] = {
     "R14",
     "R15",
     "RAX",            // Reserved
-    "R10",
+    "R10",            // Reserved
     "R11",
 };
 

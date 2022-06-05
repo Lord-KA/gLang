@@ -17,6 +17,7 @@ typedef enum {
 } OPCODE_;
 
 static const size_t OPCODE_ARGS[OP_CNT_] = {
+    0,
     #define OP_DEF(name, args, ...) args,
         #include "opcodes.h"
     #undef OP_DEF
@@ -27,6 +28,7 @@ static const size_t OPCODE_ARGS[OP_CNT_] = {
 };
 
 static const char OPCODE_MSG[OP_CNT_][10] = {
+    "NONE",
     #define OP_DEF(name, ...) #name ,
         #include "opcodes.h"
     #undef OP_DEF
@@ -44,6 +46,7 @@ typedef struct {
     size_t jmpId;
     size_t labelId;
     char name[100];         //TODO
+    size_t line;
 } Command;
 
 #endif

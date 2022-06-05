@@ -1,0 +1,10 @@
+main(a, b, c, d) 
+{
+    if (a > 9) {
+        return b * c / d;
+    }
+    if (a < 9) {
+        return 3 * b + c * 4 + d * 5;
+    }
+    return a / d;
+}

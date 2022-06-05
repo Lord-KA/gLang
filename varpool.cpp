@@ -25,6 +25,7 @@ varPool *varPool_new(FILE *out)
     p->inMem = p->inReg + REG_CNT_;
     p->inReg[REG_NONE_].allocated = true;
     p->inReg[RAX].allocated = true;
+    p->inReg[R10].allocated = true;
     p->inReg[RBX].allocated = true;
     p->inReg[RSP].allocated = true;
     p->inReg[RBP].allocated = true;
@@ -93,7 +94,7 @@ Var *varPool_alloc(varPool *p, size_t nodeId)
 Var *varPool_free(varPool *p, Var *v)
 {
     assert(p != NULL);
-    assert(v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != RBX);
+    assert(v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != RBX && v->reg != R10);
     assert(v->temp);
     v->allocated = false;
     --p->overall;

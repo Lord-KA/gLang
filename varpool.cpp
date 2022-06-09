@@ -97,6 +97,7 @@ Var *varPool_free(varPool *p, Var *v)
     assert(v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != RBX && v->reg != R10);
     assert(v->temp);
     v->allocated = false;
+    v->temp = false;
     --p->overall;
     return NULL;
 }
@@ -119,4 +120,5 @@ void varPool_dump(varPool *p, FILE *out)
             fprintf(stderr, "%s (%d)\t| offset = %zu\t| num = %zu\t| temp = %d\t| allocated = %d\t| nodeId = %zu\n", REGISTER_MSG[v->reg], v->reg, v->offset, v->num, v->temp, v->allocated, v->nodeId);
         }
     }
+    fprintf(stderr, "\n\n\n");
 }

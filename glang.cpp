@@ -1144,12 +1144,11 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         bool inUse[7] = {};
         while (childId != -1 && i <= 6) {                    // 6 == number of args passed via registers
             GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
-            if (p->inReg[i].allocated && (*res_out)->reg != p->inReg[i].reg) {
+            if (p->inReg[i].allocated && !(*res_out)->temp) {
                 inUse[i] = true;
                 Command c = {};
                 c.opcode = PUSH;
                 c.first = p->inReg[i];
-                p->inReg[i].allocated = true;
                 PUSH_COMMAND(c);
             }
             if ((*res_out)->reg != p->inReg[i].reg) {
@@ -1158,6 +1157,8 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
                 c.first = p->inReg[i];
                 c.second = **res_out;
                 PUSH_COMMAND(c);
+                p->inReg[i].allocated = true;
+                p->inReg[i].temp = true;
                 if ((*res_out)->temp)
                     varPool_free(p, *res_out);
             }
@@ -1165,7 +1166,7 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
             childId = GLANG_NODE_BY_ID(childId)->sibling;
             ++i;
         }
-
+        size_t passedInMem = 0;
         while (childId != -1) {
             GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
 
@@ -1177,7 +1178,7 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
                 varPool_free(p, *res_out);
 
             childId = GLANG_NODE_BY_ID(childId)->sibling;
-            ++i;
+            ++passedInMem;
         }
 
         Command c = {};
@@ -1185,16 +1186,24 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         strncpy(c.name, node->funcName, GLANG_MAX_LIT_LEN);
         PUSH_COMMAND(c);
 
-        for (size_t j = 6; j > 0; --j) {                    // 6 == number of args passed via registers
+        assert(i != 0);
+        for (size_t j = i - 1; j > 0; --j) {                    // 6 == number of args passed via registers
             if (inUse[j]) {
                 Command c = {};
                 c.opcode = POP;
                 c.first = p->inReg[j];
                 PUSH_COMMAND(c);
             } else {
-                p->inReg[i].allocated = false;
+                p->inReg[j].allocated = false;
             }
         }
+
+        c.opcode = ADD;                                         // TODO recheck the convention; sub rsp with the same num at the end of each func
+        c.first.reg = RSP;
+        c.second.reg = REG_NONE_;
+        c.second.offset = -1;
+        c.second.num = 8 * passedInMem;
+
         if ((*res_out)->temp)
             varPool_free(p, *res_out);
         *res_out = p->inReg + RAX;
@@ -1293,7 +1302,6 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
         */
         Var *res = NULL;
         GLANG_IS_OK(gLang_compileExpr(ctx, childId, &res));
-
         Command c = {};
         c.opcode = TEST;
         c.first  = *res;
@@ -1389,6 +1397,8 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
             c.first.reg = RAX;
             c.second = *res;
             PUSH_COMMAND(c);
+            if (res->temp)
+                varPool_free(p, res);
         }
 
         size_t offset = ctx->varTables[ctx->varTablesCur]->inMemCnt;
@@ -1423,6 +1433,8 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
         c.opcode = OUT;
         c.first = *res;
         PUSH_COMMAND(c);
+        if (res->temp)
+            varPool_free(p, res);
         /*
         fprintf(out, "out\n");
         */
@@ -1550,7 +1562,7 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
         c.second.reg = RSP;
         PUSH_COMMAND(c);
 
-        c.opcode = ADD;
+        c.opcode = ADD;                     //TODO sub rsp with the number of inMem args
         c.first.reg = RSP;
         c.second.reg = REG_NONE_;
         c.second.offset = -1;

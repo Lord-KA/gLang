@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <assert.h>
 #include <string.h>
+#include <stdint.h>
 
 
 typedef enum {
@@ -33,6 +34,34 @@ typedef enum {
     REG_CNT_
 } REGISTER_;
 
+typedef enum {
+    BASIC = 0,
+    EXTENDED,
+    SERVICE,
+} REGISTER_TYPE_;
+
+static const REGISTER_TYPE_ REG_TYPE[REG_CNT_] = {
+    SERVICE,        // REG_NONE_
+    BASIC,          // RDI
+    BASIC,
+    BASIC,
+    BASIC,
+    EXTENDED,       // R8
+    EXTENDED,       // R9
+    SERVICE,        // RBX
+    SERVICE,        // RSP
+    SERVICE,        // RBP
+    EXTENDED,
+    EXTENDED,
+    EXTENDED,
+    EXTENDED,
+    SERVICE,        // RAX
+    SERVICE,        // R10
+    EXTENDED,       // R11
+};
+
+
+
 static const char REGISTER_MSG[REG_CNT_][10] = {
     "REG_NONE",
     "RDI",
@@ -51,6 +80,26 @@ static const char REGISTER_MSG[REG_CNT_][10] = {
     "RAX",            // Reserved
     "R10",            // Reserved
     "R11",
+};
+
+static const uint8_t REG_CODE[REG_CNT_] = {
+    0xFF,
+    0b0111,
+    0b0110,
+    0b0010,
+    0b0001,
+    0b1000,
+    0b1001,
+    0b0011,
+    0b0100,
+    0b0101,
+    0b1100,
+    0b1101,
+    0b1110,
+    0b1111,
+    0b0000,
+    0b1010,
+    0b1011,
 };
 
 typedef struct {
@@ -72,7 +121,7 @@ typedef struct {
 } varPool;
 
 
-varPool *varPool_new(FILE *out);
+varPool *varPool_new();
 
 varPool *varPool_delete(varPool *p);
 

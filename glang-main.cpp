@@ -86,7 +86,7 @@ int main(int argc, char **argv)
         fclose(gvOut);
     #endif
 
-    gLang_compile(ctx, out);
+    gLang_compile(ctx);
 
     fprintf(stderr, "\n\ncommands len = %zu\n", ctx->commands->len);
 
@@ -100,6 +100,20 @@ int main(int argc, char **argv)
         gvOut = fopen("commandsDump.txt", "w");
         gLang_commandsDump(ctx, gvOut);
         fclose(gvOut);
+    #endif
+
+    gLang_translate(ctx, NULL, true);
+
+    #ifdef EXTRA_VERBOSE
+        fprintf(stderr, "\n\nLabel fixups:\n");
+        if (ctx->labelFixup != NULL) {
+            for (size_t i = 0; i < ctx->labelCnt; ++i) {
+                assert(ctx->labelFixup[i] != 0);
+                fprintf(stderr, "%zu\t| offset = %zu\n", i, ctx->labelFixup[i]);
+            }
+        } else {
+            fprintf(stderr, "EMPTY!\n");
+        }
     #endif
 
 finish:

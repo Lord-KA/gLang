@@ -1,23 +1,20 @@
-#ifndef GARRAY_H
-#define GARRAY_H
-
+#ifndef GARR_ONCE
+#define GARR_ONCE
 #include <stdlib.h>
 #include <assert.h>
 #include <stdio.h>
-
-#ifndef T
-#define T size_t
-#endif
+#include "gutils.h"
+#endif // GARR_ONCE
 
 typedef struct {
     T *data;
     size_t len;
     size_t capacity;
-} gArr;
+} GARR_GENERIC(gArr);
 
-static gArr *gArr_new(size_t cap)
+static GARR_GENERIC(gArr) *GARR_GENERIC(gArr_new)(size_t cap)
 {
-    gArr *arr = (gArr*)calloc(1, sizeof(gArr));
+    GARR_GENERIC(gArr) *arr = (GARR_GENERIC(gArr)*)calloc(1, sizeof(GARR_GENERIC(gArr)));
     if (arr == NULL)
         return NULL;
     arr->data = (T*)calloc(cap, sizeof(T));
@@ -30,7 +27,7 @@ static gArr *gArr_new(size_t cap)
     return arr;
 }
 
-static gArr *gArr_delete(gArr *arr)
+static GARR_GENERIC(gArr) *GARR_GENERIC(gArr_delete)(GARR_GENERIC(gArr) *arr)
 {
     assert(arr != NULL);
     free(arr->data);
@@ -38,7 +35,7 @@ static gArr *gArr_delete(gArr *arr)
     return NULL;
 }
 
-static int gArr_push(gArr *arr, T elem)        // returns 0 if OK, 1 otherwise
+static int GARR_GENERIC(gArr_push)(GARR_GENERIC(gArr) *arr, T elem)        // returns 0 if OK, 1 otherwise
 {
     assert(arr != NULL);
     if (arr->len >= arr->capacity) {
@@ -52,4 +49,4 @@ static int gArr_push(gArr *arr, T elem)        // returns 0 if OK, 1 otherwise
     ++arr->len;
     return 0;
 }
-#endif
+#undef T

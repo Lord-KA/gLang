@@ -1,13 +1,11 @@
 #include "varpool.h"
 
-varPool *varPool_new(FILE *out)
+varPool *varPool_new()
 {
-    assert(out != NULL);
     varPool *p = (varPool*)calloc(1, sizeof(varPool));
     assert(p != NULL);
     if (p == NULL)
         return p;
-    p->out = out;
     p->inMemCnt = 0;
     p->inMemCap = 20;           //TODO
     p->overall  = 0;

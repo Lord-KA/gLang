@@ -80,7 +80,7 @@ gLang_status gLang_dtor(gLang *ctx)
     }
 
     if (gPtrValid(ctx->commands))
-        gArr_delete(ctx->commands);
+        gArr_delete_c(ctx->commands);
 
     return gLang_status_OK;
 }
@@ -1184,6 +1184,8 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         Command c = {};
         c.opcode = CALL;
         strncpy(c.name, node->funcName, GLANG_MAX_LIT_LEN);
+        c.labelId = ctx->labelCnt;
+        ++ctx->labelCnt;
         PUSH_COMMAND(c);
 
         assert(i != 0);
@@ -1469,10 +1471,9 @@ static gLang_status gLang_getArgs(gLang *ctx, size_t siblingId, size_t num, size
     return gLang_status_OK;
 }
 
-gLang_status gLang_compile(gLang *ctx, FILE *out)
+gLang_status gLang_compile(gLang *ctx)
 {
     GLANG_CHECK_SELF_PTR(ctx);
-    GLANG_ASSERT_LOG(gPtrValid(out), gLang_status_BadPtr);
 
     size_t funcRootId = GLANG_NODE_BY_ID(ctx->tree.root)->child;
     if (funcRootId == -1) {
@@ -1486,18 +1487,19 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
         funcRootId = GLANG_NODE_BY_ID(funcRootId)->sibling;
     }
 
-    ctx->asmOut = out;
-    ctx->labelCnt = 0;
+    ctx->labelCnt = 1;
     ctx->varTablesLen = cnt;
     ctx->varTables = (varPool**)calloc(cnt, sizeof(varPool*));
     GLANG_ASSERT_LOG(ctx->varTables != NULL, gLang_status_AllocErr);
 
-    ctx->commands = gArr_new(50);
+    ctx->commands = gArr_new_c(100);
     GLANG_ASSERT_LOG(ctx->commands != NULL, gLang_status_AllocErr);
 
     Command c = {};
     c.opcode = CALL;
     strcpy(c.name, "main");
+    c.labelId = ctx->labelCnt;
+    ++ctx->labelCnt;
     PUSH_COMMAND(c);
     c.opcode = EXIT;
     PUSH_COMMAND(c);
@@ -1510,7 +1512,7 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
     funcRootId = GLANG_NODE_BY_ID(ctx->tree.root)->child;
     ctx->varTablesCur = 0;
     while (funcRootId != -1) {
-        ctx->varTables[ctx->varTablesCur] = varPool_new(out);
+        ctx->varTables[ctx->varTablesCur] = varPool_new();
         GLANG_ASSERT_LOG(ctx->varTables[ctx->varTablesCur] != NULL, gLang_status_AllocErr);
         gLang_fillVarTable(ctx, funcRootId);
 
@@ -1582,6 +1584,88 @@ gLang_status gLang_compile(gLang *ctx, FILE *out)
     return gLang_status_OK;
 }
 
+gLang_status gLang_translate(gLang *ctx, FILE *out, bool fixupRun)
+{
+    return gLang_status_NothingToDo;            //TODO remove
+    GLANG_CHECK_SELF_PTR(ctx);
+    if (!fixupRun) {
+        GLANG_ASSERT_LOG(gPtrValid(out), gLang_status_BadPtr);
+        ctx->asmOut = out;
+    }
+    if (ctx->commands == NULL || ctx->commands->len == 0) {
+        fprintf(ctx->logStream, "There is nothing to translate, have you run the compiler?\n");
+        return gLang_status_NothingToDo;
+    }
+
+    if (ctx->bin != NULL) {
+        fprintf(ctx->logStream, "WARNING: bin buffer is not empty!\n");
+        gArr_delete_b(ctx->bin);
+        ctx->bin = gArr_new_b(1000);
+        GLANG_ASSERT_LOG(ctx->bin != NULL, gLang_status_AllocErr);
+    }
+
+    Command *iter = ctx->commands->data;
+    size_t offset = 0;
+    if (fixupRun) {
+        if (ctx->labelFixup != NULL) {
+            fprintf(ctx->logStream, "WARNING: label fixup table isn't empty!\n");
+            free(ctx->labelFixup);
+        }
+        ctx->labelFixup = (size_t*)calloc(sizeof(size_t), GLANG_MAX_LABEL_CNT);
+        GLANG_ASSERT_LOG(ctx->labelFixup != NULL, gLang_status_AllocErr);
+    }
+    for (size_t i = 0; i < ctx->commands->len; ++i, ++iter) {
+        REGISTER_ r = iter->first->reg;
+        REGISTER_ l = iter->second->reg;
+        switch (iter->opcode) {
+        case PUSH:
+            assert(r != REG_NONE_ && r < REG_CNT_);
+            if (REG_TYPE[r] == BASIC) {
+                PUSH_BYTE(0x50 | REG_CODE[r]);
+            } else if (REG_TYPE[r] == EXTENDED) {
+                PUSH_BYTE(0x41);
+                PUSH_BYTE(0x50 | (REG_CODE[r] & 0b0111));
+            }
+            break;
+        case POP:
+            assert(r != REG_NONE_ && r < REG_CNT_);
+            if (REG_TYPE[r] == BASIC) {
+                PUSH_BYTE(0x50 | (REG_CODE[r] | 0b1000));
+            } else if (REG_TYPE[r] == EXTENDED) {
+                PUSH_BYTE(0x41);
+                PUSH_BYTE(0x50 | REG_CODE[r]);
+            }
+            break;
+        case ADD:       //TODO
+            assert(r != REG_NONE_ && r < REG_CNT_);
+            assert(l != REG_NONE_ && l < REG_CNT_);
+            if (REG_TYPE[r] == BASIC) {
+                PUSH_BYTE(0x48);
+                PUSH_BYTE(0x01);
+                PUSH_BYTE();
+            }
+        case LABLE:
+            if (fixupRun)
+                ctx->labelFixup[iter->labelId] = ctx->bin->len;
+            break;
+        }
+
+
+        if (fixupRun) {
+            if (iter->opcode == PUSH && iter->first.reg == RSP)
+                offset += 1;
+            else if (iter->opcode == LABLE)
+                ctx->labelFixup[iter->labelId] = offset;
+            else
+                offset;
+      //          offset += sizeof(OPCODE_BYTES[iter->opcode]) + 8 * OPCODE_ARGS[iter->opcode];
+        } else {
+            assert(!"Not implemented yet!"); //TODO
+        }
+    }
+    return gLang_status_OK;
+}
+
 gLang_status gLang_commandsDump(gLang *ctx, FILE *out)
 {
     GLANG_CHECK_SELF_PTR(ctx);
@@ -1595,14 +1679,10 @@ gLang_status gLang_commandsDump(gLang *ctx, FILE *out)
     for (size_t i = 0; i < ctx->commands->len; ++i) {
         Command c = ctx->commands->data[i];
         fprintf(out, "%s", OPCODE_MSG[c.opcode]);
-        if (c.opcode == LABLE) {
+        if (c.opcode == LABLE || c.opcode == CALL) {
             if (*c.name != '\0')
                 fprintf(out, " | %s", c.name);
             fprintf(out, " | %zu", c.labelId);
-            goto end;
-        }
-        if (c.opcode == CALL) {
-            fprintf(out, " | %s", c.name);
             goto end;
         }
         if (c.opcode == JMP | c.opcode == JE) {

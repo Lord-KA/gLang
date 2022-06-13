@@ -1,21 +1,27 @@
 #pragma once
 
-#define STACK_TYPE size_t
-#define ELEM_PRINTF_FORM "%lu"
-#define CHEAP_DEBUG
-
-#include "gstack.h"
-
 #include "commands.h"
 #include "varpool.h"
 
+#define GARR_GENERIC(name) TEMPLATE(name, c)
 #define T Command
-#include "garray.h"
+    #include "garray.h"
 #undef T
+#undef GARR_GENERIC
+
+#define STACK_TYPE size_t
+#define ELEM_PRINTF_FORM "%lu"
+#define CHEAP_DEBUG
+    #include "gstack.h"
+#undef CHEAP_DEBUG
+#undef ELEM_PRINTF_FORM
+
 
 static const size_t MAX_LINE_LEN = 1000;
 static const size_t GLANG_MAX_LIT_LEN = 100;
 static const size_t GLANG_LEX_LIM = 1000;
+static const size_t GLANG_MAX_LABEL_CNT = 10000;
+static const size_t GLANG_MAX_BIN_LEN   = 1000000;
 
 static const double GLANG_EPS = 1e-3;
 
@@ -256,7 +262,11 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 
 #define PUSH_COMMAND(c) ({         \
     c.line = __LINE__;              \
-    gArr_push(ctx->commands, c);     \
+    gArr_push_c(ctx->commands, c);   \
+})
+
+#define PUSH_BYTE(b) ({         \
+    gArr_push_b(ctx->bin, b);    \
 })
 
 struct gLang {
@@ -266,11 +276,18 @@ struct gLang {
     const char *buffer    = {};
     size_t      labelCnt  = {};
     GENERIC(stack) LexemeIds = {};
-    size_t         lexemeCur = {};
-    varPool       **varTables    = {};
-    size_t          varTablesCur = {};
-    size_t          varTablesLen = {};
-    gArr  *commands = {};
+    size_t    lexemeCur = {};
+    varPool **varTables    = {};
+    size_t    varTablesCur = {};
+    size_t    varTablesLen = {};
+    size_t   *labelFixup = {};
+    gArr_c   *commands = {};
+    #define GARR_GENERIC(name) TEMPLATE(name, b)
+    #define T uint8_t
+    #include "garray.h"
+    #undef T
+    #undef GARR_GENERIC
+    gArr_b   *bin = {};
 } typedef gLang;
 
 
@@ -329,6 +346,8 @@ static gLang_status gLang_compileBlk(gLang *ctx, size_t siblingId);
 
 static gLang_status gLang_getArgs(gLang *ctx, size_t siblingId);
 
-gLang_status gLang_compile(gLang *ctx, FILE *out);
+gLang_status gLang_compile(gLang *ctx);
+
+gLang_status gLang_translate(gLang *ctx, FILE *out, bool fixupRun);
 
 gLang_status gLang_commandsDump(gLang *ctx, FILE *out);

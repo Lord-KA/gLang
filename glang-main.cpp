@@ -102,7 +102,7 @@ int main(int argc, char **argv)
         fclose(gvOut);
     #endif
 
-    gLang_translate(ctx, NULL, true);
+    gLang_translate(ctx, true);
 
     #ifdef EXTRA_VERBOSE
         fprintf(stderr, "\n\nLabel fixups:\n");

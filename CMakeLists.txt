@@ -68,6 +68,7 @@ if(NOT gspu_POPULATED)
 endif()
 
 add_executable(glang glang-main.cpp glang.cpp glang.h varpool.cpp varpool.h commands.h)
+add_executable(translation-test translation-test.cpp glang.cpp glang.h varpool.cpp varpool.h commands.h)
 
 add_custom_command(
   OUTPUT "assembler"

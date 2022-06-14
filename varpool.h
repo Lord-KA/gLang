@@ -41,23 +41,23 @@ typedef enum {
 } REGISTER_TYPE_;
 
 static const REGISTER_TYPE_ REG_TYPE[REG_CNT_] = {
-    SERVICE,        // REG_NONE_
-    BASIC,          // RDI
+    SERVICE,      // REG_NONE_
+    BASIC,        // RDI
     BASIC,
     BASIC,
     BASIC,
-    EXTENDED,       // R8
-    EXTENDED,       // R9
-    SERVICE,        // RBX
-    SERVICE,        // RSP
-    SERVICE,        // RBP
+    EXTENDED,     // R8
+    EXTENDED,     // R9
+    BASIC,        // RBX
+    BASIC,        // RSP
+    BASIC,        // RBP
     EXTENDED,
     EXTENDED,
     EXTENDED,
     EXTENDED,
-    SERVICE,        // RAX
-    SERVICE,        // R10
-    EXTENDED,       // R11
+    BASIC,         // RAX
+    EXTENDED,      // R10
+    EXTENDED,      // R11
 };
 
 

@@ -1584,14 +1584,10 @@ gLang_status gLang_compile(gLang *ctx)
     return gLang_status_OK;
 }
 
-gLang_status gLang_translate(gLang *ctx, FILE *out, bool fixupRun)
+gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 {
-    return gLang_status_NothingToDo;            //TODO remove
     GLANG_CHECK_SELF_PTR(ctx);
-    if (!fixupRun) {
-        GLANG_ASSERT_LOG(gPtrValid(out), gLang_status_BadPtr);
-        ctx->asmOut = out;
-    }
+
     if (ctx->commands == NULL || ctx->commands->len == 0) {
         fprintf(ctx->logStream, "There is nothing to translate, have you run the compiler?\n");
         return gLang_status_NothingToDo;
@@ -1600,9 +1596,9 @@ gLang_status gLang_translate(gLang *ctx, FILE *out, bool fixupRun)
     if (ctx->bin != NULL) {
         fprintf(ctx->logStream, "WARNING: bin buffer is not empty!\n");
         gArr_delete_b(ctx->bin);
-        ctx->bin = gArr_new_b(1000);
-        GLANG_ASSERT_LOG(ctx->bin != NULL, gLang_status_AllocErr);
     }
+    ctx->bin = gArr_new_b(1000);
+    GLANG_ASSERT_LOG(ctx->bin != NULL, gLang_status_AllocErr);
 
     Command *iter = ctx->commands->data;
     size_t offset = 0;
@@ -1615,52 +1611,79 @@ gLang_status gLang_translate(gLang *ctx, FILE *out, bool fixupRun)
         GLANG_ASSERT_LOG(ctx->labelFixup != NULL, gLang_status_AllocErr);
     }
     for (size_t i = 0; i < ctx->commands->len; ++i, ++iter) {
-        REGISTER_ r = iter->first->reg;
-        REGISTER_ l = iter->second->reg;
+        REGISTER_ f = iter->first.reg;
+        REGISTER_ s = iter->second.reg;
+        fprintf(stderr, "THERE!\n");
         switch (iter->opcode) {
         case PUSH:
-            assert(r != REG_NONE_ && r < REG_CNT_);
-            if (REG_TYPE[r] == BASIC) {
-                PUSH_BYTE(0x50 | REG_CODE[r]);
-            } else if (REG_TYPE[r] == EXTENDED) {
+            assert(f != REG_NONE_ && f < REG_CNT_);
+            if (REG_TYPE[f] == BASIC) {
+                PUSH_BYTE(0x50 | REG_CODE[f]);
+            } else if (REG_TYPE[f] == EXTENDED) {
                 PUSH_BYTE(0x41);
-                PUSH_BYTE(0x50 | (REG_CODE[r] & 0b0111));
+                PUSH_BYTE(0x50 | (REG_CODE[f] & 0b0111));
             }
             break;
         case POP:
-            assert(r != REG_NONE_ && r < REG_CNT_);
-            if (REG_TYPE[r] == BASIC) {
-                PUSH_BYTE(0x50 | (REG_CODE[r] | 0b1000));
-            } else if (REG_TYPE[r] == EXTENDED) {
+            assert(f != REG_NONE_ && f < REG_CNT_);
+            if (REG_TYPE[f] == BASIC) {
+                PUSH_BYTE(0x50 | (REG_CODE[f] | 0b1000));
+            } else if (REG_TYPE[f] == EXTENDED) {
                 PUSH_BYTE(0x41);
-                PUSH_BYTE(0x50 | REG_CODE[r]);
+                PUSH_BYTE(0x50 | REG_CODE[f]);
             }
             break;
-        case ADD:       //TODO
-            assert(r != REG_NONE_ && r < REG_CNT_);
-            assert(l != REG_NONE_ && l < REG_CNT_);
-            if (REG_TYPE[r] == BASIC) {
+        case ADD:
+            assert(f != REG_NONE_ && f < REG_CNT_);
+            assert(s != REG_NONE_ && s < REG_CNT_);
+            if (REG_TYPE[f] == BASIC && REG_TYPE[s] == BASIC) {
                 PUSH_BYTE(0x48);
                 PUSH_BYTE(0x01);
-                PUSH_BYTE();
+                PUSH_BYTE(0b11000000 | (REG_CODE[f]) | REG_CODE[s] << 3);
+            } else if (REG_TYPE[f] == EXTENDED && REG_TYPE[s] == BASIC) {
+                PUSH_BYTE(0x49);
+                PUSH_BYTE(0x01);
+                PUSH_BYTE(0b11000000 | (REG_CODE[f] & 0b0111) | REG_CODE[s] << 3);
+            } else if (REG_TYPE[f] == BASIC && REG_TYPE[s] == EXTENDED) {
+                PUSH_BYTE(0x4c);
+                PUSH_BYTE(0x01);
+                PUSH_BYTE(0b11000000 | REG_CODE[f] | (REG_CODE[s] & 0b0111) << 3);
+            } else if (REG_TYPE[f] == EXTENDED && REG_TYPE[s] == EXTENDED) {
+                PUSH_BYTE(0x4d);
+                PUSH_BYTE(0x01);
+                PUSH_BYTE(0b11000000 | (REG_CODE[f] & 0b0111) | (REG_CODE[s] & 0b0111) << 3);
+            } else {
+                assert(false);
             }
+            break;
+        case SUB:
+            assert(f != REG_NONE_ && f < REG_CNT_);
+            assert(s != REG_NONE_ && s < REG_CNT_);
+            if (REG_TYPE[f] == BASIC && REG_TYPE[s] == BASIC) {
+                PUSH_BYTE(0x48);
+                PUSH_BYTE(0x29);
+                PUSH_BYTE(0b11000000 | (REG_CODE[f]) | REG_CODE[s] << 3);
+            } else if (REG_TYPE[f] == EXTENDED && REG_TYPE[s] == BASIC) {
+                PUSH_BYTE(0x49);
+                PUSH_BYTE(0x29);
+                PUSH_BYTE(0b11000000 | (REG_CODE[f] & 0b0111) | REG_CODE[s] << 3);
+            } else if (REG_TYPE[f] == BASIC && REG_TYPE[s] == EXTENDED) {
+                PUSH_BYTE(0x4c);
+                PUSH_BYTE(0x29);
+                PUSH_BYTE(0b11000000 | REG_CODE[f] | (REG_CODE[s] & 0b0111) << 3);
+            } else if (REG_TYPE[f] == EXTENDED && REG_TYPE[s] == EXTENDED) {
+                PUSH_BYTE(0x4d);
+                PUSH_BYTE(0x29);
+                PUSH_BYTE(0b11000000 | (REG_CODE[f] & 0b0111) | (REG_CODE[s] & 0b0111) << 3);
+            } else {
+                assert(false);
+            }
+            break;
+
         case LABLE:
             if (fixupRun)
                 ctx->labelFixup[iter->labelId] = ctx->bin->len;
             break;
-        }
-
-
-        if (fixupRun) {
-            if (iter->opcode == PUSH && iter->first.reg == RSP)
-                offset += 1;
-            else if (iter->opcode == LABLE)
-                ctx->labelFixup[iter->labelId] = offset;
-            else
-                offset;
-      //          offset += sizeof(OPCODE_BYTES[iter->opcode]) + 8 * OPCODE_ARGS[iter->opcode];
-        } else {
-            assert(!"Not implemented yet!"); //TODO
         }
     }
     return gLang_status_OK;

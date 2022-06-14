@@ -9,6 +9,14 @@
 #undef T
 #undef GARR_GENERIC
 
+
+#define GARR_GENERIC(name) TEMPLATE(name, b)
+#define T uint8_t
+    #include "garray.h"
+#undef T
+#undef GARR_GENERIC
+
+
 #define STACK_TYPE size_t
 #define ELEM_PRINTF_FORM "%lu"
 #define CHEAP_DEBUG
@@ -282,11 +290,6 @@ struct gLang {
     size_t    varTablesLen = {};
     size_t   *labelFixup = {};
     gArr_c   *commands = {};
-    #define GARR_GENERIC(name) TEMPLATE(name, b)
-    #define T uint8_t
-    #include "garray.h"
-    #undef T
-    #undef GARR_GENERIC
     gArr_b   *bin = {};
 } typedef gLang;
 
@@ -348,6 +351,6 @@ static gLang_status gLang_getArgs(gLang *ctx, size_t siblingId);
 
 gLang_status gLang_compile(gLang *ctx);
 
-gLang_status gLang_translate(gLang *ctx, FILE *out, bool fixupRun);
+gLang_status gLang_translate(gLang *ctx, bool fixupRun);
 
 gLang_status gLang_commandsDump(gLang *ctx, FILE *out);

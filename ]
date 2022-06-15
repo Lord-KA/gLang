@@ -1595,7 +1595,7 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
     if (ctx->bin != NULL) {
         fprintf(ctx->logStream, "WARNING: bin buffer is not empty!\n");
-        ctx->bin = gArr_delete_b(ctx->bin);
+        gArr_delete_b(ctx->bin);
     }
     ctx->bin = gArr_new_b(1000);
     GLANG_ASSERT_LOG(ctx->bin != NULL, gLang_status_AllocErr);
@@ -1621,7 +1621,7 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
                 PUSH_BYTE(0x50 | REG_CODE[f]);
             } else if (REG_TYPE[f] == EXTENDED) {
                 PUSH_BYTE(0x41);
-                PUSH_BYTE(0x50 | REG_CODE[f]);
+                PUSH_BYTE(0x50 | (REG_CODE[f] & 0b0111));
             }
             break;
 
@@ -1631,11 +1631,28 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
                 PUSH_BYTE(0x50 | (REG_CODE[f] | 0b1000));
             } else if (REG_TYPE[f] == EXTENDED) {
                 PUSH_BYTE(0x41);
-                PUSH_BYTE(0x50 | (REG_CODE[f] | 0b1000));
+                PUSH_BYTE(0x50 | REG_CODE[f]);
             }
             break;
 
         case ADD:
+            assert(f != REG_NONE_ && f < REG_CNT_);
+            assert(s != REG_NONE_ && s < REG_CNT_);
+            if (     REG_TYPE[f] == BASIC    && REG_TYPE[s] == BASIC)
+                PUSH_BYTE(0x48);
+            else if (REG_TYPE[f] == EXTENDED && REG_TYPE[s] == BASIC)
+                PUSH_BYTE(0x49);
+            else if (REG_TYPE[f] == BASIC    && REG_TYPE[s] == EXTENDED)
+                PUSH_BYTE(0x4c);
+            else if (REG_TYPE[f] == EXTENDED && REG_TYPE[s] == EXTENDED)
+                PUSH_BYTE(0x4d);
+            else
+                assert(false);
+
+            PUSH_BYTE(0x01);
+            PUSH_BYTE(0b11000000 | REG_CODE[s] << 3 | REG_CODE[f]);
+            break;
+
         case SUB:
             assert(f != REG_NONE_ && f < REG_CNT_);
             assert(s != REG_NONE_ && s < REG_CNT_);
@@ -1650,32 +1667,17 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
             else
                 assert(false);
 
-            if (iter->opcode == ADD)
-                PUSH_BYTE(0x01);
-            else
-                PUSH_BYTE(0x29);
+            PUSH_BYTE(0x29);
             PUSH_BYTE(0b11000000 | REG_CODE[s] << 3 | REG_CODE[f]);
             break;
 
         case CALL:
-            if (iter->first.reg == REG_NONE_ && iter->first.offset != -1) {
-                size_t addr = iter->first.offset;
-                PUSH_BYTE(0x41);                        // mov r10, num
-                PUSH_BYTE(0xba);
-                size_t i = 0;
-                while (addr > 0) {
-                    PUSH_BYTE(addr & 0xff);
-                    addr >>= 8;
-                    ++i;
-                }
-                if (i < 8)
-                    PUSH_BYTE(0x00);
-                f = R10;
+            if (f != REG_NONE_ && f < REG_CNT_) {
+                if (REG_TYPE[f] == EXTENDED)
+                    PUSH_BYTE(0x41);
+                PUSH_BYTE(0xff | (REG_CODE[f] | 0b11010000));
             }
-            if (REG_TYPE[f] == EXTENDED)
-                PUSH_BYTE(0x41);
-            PUSH_BYTE(0xff);
-            PUSH_BYTE(0xd0 | REG_CODE[f]);
+            break;
 
 
             break;

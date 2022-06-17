@@ -1637,6 +1637,9 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
         case ADD:
         case SUB:
+        case CMP:
+        case MOV:
+        case TEST:
             assert(f != REG_NONE_ && f < REG_CNT_);
             assert(s != REG_NONE_ && s < REG_CNT_);
             if (     REG_TYPE[f] == BASIC    && REG_TYPE[s] == BASIC)
@@ -1650,14 +1653,24 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
             else
                 assert(false);
 
-            if (iter->opcode == ADD)
+            if (iter->opcode == ADD) {
                 PUSH_BYTE(0x01);
-            else
+            } else if (iter->opcode == SUB) {
                 PUSH_BYTE(0x29);
+            } else if (iter->opcode == CMP) {
+                PUSH_BYTE(0x39);
+            } else if (iter->opcode == MOV) {
+                PUSH_BYTE(0x89);
+            } else if (iter->opcode == TEST) {
+                PUSH_BYTE(0x85);
+            } else {
+                assert(false);
+            }
             PUSH_BYTE(0b11000000 | REG_CODE[s] << 3 | REG_CODE[f]);
             break;
 
         case CALL:
+        case JMP:
             if (iter->first.reg == REG_NONE_ && iter->first.offset != -1) {
                 size_t addr = iter->first.offset;
                 PUSH_BYTE(0x41);                        // mov r10, num
@@ -1668,16 +1681,52 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
                     addr >>= 8;
                     ++i;
                 }
-                if (i < 8)
+                if (i <= 4)
+                    i = 4 - i;
+                else
+                    i = 8 - i;
+                for (size_t j = 0; j < i; ++j)
                     PUSH_BYTE(0x00);
                 f = R10;
             }
             if (REG_TYPE[f] == EXTENDED)
                 PUSH_BYTE(0x41);
             PUSH_BYTE(0xff);
-            PUSH_BYTE(0xd0 | REG_CODE[f]);
+            if (iter->opcode == CALL)
+                PUSH_BYTE(0xd0 | REG_CODE[f]);
+            else
+                PUSH_BYTE(0xe0 | REG_CODE[f]);
+            break;
 
+        case CMOVL:
+        case CMOVG:
+            assert(f != REG_NONE_ && f < REG_CNT_);
+            assert(s != REG_NONE_ && s < REG_CNT_);
+            if (     REG_TYPE[f] == BASIC    && REG_TYPE[s] == BASIC)
+                PUSH_BYTE(0x48);
+            else if (REG_TYPE[f] == EXTENDED && REG_TYPE[s] == BASIC)
+                PUSH_BYTE(0x4c);
+            else if (REG_TYPE[f] == BASIC    && REG_TYPE[s] == EXTENDED)
+                PUSH_BYTE(0x49);
+            else if (REG_TYPE[f] == EXTENDED && REG_TYPE[s] == EXTENDED)
+                PUSH_BYTE(0x4d);
+            else
+                assert(false);
 
+            PUSH_BYTE(0x0f);
+
+            if (iter->opcode == CMOVL) {
+                PUSH_BYTE(0x4c);
+            } else if (iter->opcode == CMOVG) {
+                PUSH_BYTE(0x4f);
+            } else {
+                assert(false);
+            }
+            PUSH_BYTE(0b11000000 | REG_CODE[f] << 3 | REG_CODE[s]);
+            break;
+
+        case RET:
+            PUSH_BYTE(0xc3);
             break;
 
         case LABLE:

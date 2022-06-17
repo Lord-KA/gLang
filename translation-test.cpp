@@ -1,5 +1,6 @@
 #include "glang.h"
 
+static size_t testCnt = 1;
 
 void check(gLang *ctx, uint8_t bytes[])
 {
@@ -12,6 +13,8 @@ void check(gLang *ctx, uint8_t bytes[])
     }
     fprintf(stderr, "\n\n");
     assert(!memcmp(bytes, ctx->bin->data, ctx->bin->len));
+    fprintf(stderr, "test %zu passed!\n", testCnt);
+    ++testCnt;
 }
 
 int main()
@@ -137,7 +140,21 @@ int main()
     c.first.reg = RCX;
     gArr_push_c(ctx->commands, c);
     c.first.reg = REG_NONE_;
-    c.first.offset = 0x012345;
+    c.first.offset = 0x11;
+    gArr_push_c(ctx->commands, c);
+    c.first.offset = 0x1122;
+    gArr_push_c(ctx->commands, c);
+    c.first.offset = 0x112233;
+    gArr_push_c(ctx->commands, c);
+    c.first.offset = 0x11223344;
+    gArr_push_c(ctx->commands, c);
+    c.first.offset = 0x1122334455;
+    gArr_push_c(ctx->commands, c);
+    c.first.offset = 0x112233445566;
+    gArr_push_c(ctx->commands, c);
+    c.first.offset = 0x11223344556677;
+    gArr_push_c(ctx->commands, c);
+    c.first.offset = 0x1122334455667788;
     gArr_push_c(ctx->commands, c);
 
     uint8_t bytes_5[] = {
@@ -146,15 +163,237 @@ int main()
 	    0x41, 0xff, 0xd2,   // call r10
 	    0xff, 0xd4,         // call rsp
 	    0xff, 0xd1,         // call rcx
-    	0x41, 0xba, 0x45, 0x23, 0x01, 0x00, // mov r10d,0x12345
+    	0x41, 0xba, 0x11, 0x00, 0x00, 0x00, // mov r10d,0x11
+	    0x41, 0xff, 0xd2,   // call r10
+    	0x41, 0xba, 0x22, 0x11, 0x00, 0x00, // mov r10d,0x1122
+	    0x41, 0xff, 0xd2,   // call r10
+    	0x41, 0xba, 0x33, 0x22, 0x11, 0x00, // mov r10d,0x112233
+	    0x41, 0xff, 0xd2,   // call r10
+    	0x41, 0xba, 0x44, 0x33, 0x22, 0x11, // mov r10d,0x11223344
+	    0x41, 0xff, 0xd2,   // call r10
+    	0x41, 0xba, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x00, 0x00, // mov r10d,0x1122334455...
+	    0x41, 0xff, 0xd2,   // call r10
+    	0x41, 0xba, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x00, // mov r10d,0x1122334455...
+	    0x41, 0xff, 0xd2,   // call r10
+    	0x41, 0xba, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, // mov r10d,0x1122334455...
+	    0x41, 0xff, 0xd2,   // call r10
+    	0x41, 0xba, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // mov r10d,0x1122334455...
 	    0x41, 0xff, 0xd2,   // call r10
     };
     check(ctx, bytes_5);
 
-
     c.opcode = CMP;
+    c.first.reg = R15;
+    c.second.reg = RSP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RAX;
+    c.second.reg = RAX;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBX;
+    c.second.reg = R12;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R11;
+    c.second.reg = R14;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R10;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBP;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
 
-finish:
-    //gLang_dtor(ctx);
-    fprintf(stderr, "\n");
+    uint8_t bytes_6[] = {
+	    0x49, 0x39, 0xe7, // cmp r15,rsp
+	    0x48, 0x39, 0xc0, // cmp rax,rax
+	    0x4c, 0x39, 0xe3, // cmp rbx,r12
+	    0x4d, 0x39, 0xf3, // cmp r11,r14
+	    0x49, 0x39, 0xea, // cmp r10,rbp
+	    0x48, 0x39, 0xed, // cmp rbp,rbp
+    };
+
+    check(ctx, bytes_6);
+
+
+    c.opcode = MOV;
+    c.first.reg = R15;
+    c.second.reg = RSP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RAX;
+    c.second.reg = RAX;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBX;
+    c.second.reg = R12;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R11;
+    c.second.reg = R14;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R10;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBP;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+
+    uint8_t bytes_7[] = {
+	    0x49, 0x89, 0xe7, // cmp r15,rsp
+	    0x48, 0x89, 0xc0, // cmp rax,rax
+	    0x4c, 0x89, 0xe3, // cmp rbx,r12
+	    0x4d, 0x89, 0xf3, // cmp r11,r14
+	    0x49, 0x89, 0xea, // cmp r10,rbp
+	    0x48, 0x89, 0xed, // cmp rbp,rbp
+    };
+
+    check(ctx, bytes_7);
+
+
+    c.opcode = CMOVL;
+    c.first.reg = R15;
+    c.second.reg = RSP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RAX;
+    c.second.reg = RAX;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBX;
+    c.second.reg = R12;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R11;
+    c.second.reg = R14;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R10;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBP;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+
+    uint8_t bytes_8[] = {
+        0x4c, 0x0f, 0x4c, 0xfc, // cmovl r15,rsp
+        0x48, 0x0f, 0x4c, 0xc0, // cmovl rax,rax
+        0x49, 0x0f, 0x4c, 0xdc, // cmovl rbx,r12
+        0x4d, 0x0f, 0x4c, 0xde, // cmovl r11,r14
+        0x4c, 0x0f, 0x4c, 0xd5, // cmovl r10,rbp
+        0x48, 0x0f, 0x4c, 0xed, // cmovl rbp,rbp
+    };
+
+    check(ctx, bytes_8);
+
+
+    c.opcode = CMOVG;
+    c.first.reg = R15;
+    c.second.reg = RSP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RAX;
+    c.second.reg = RAX;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBX;
+    c.second.reg = R12;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R11;
+    c.second.reg = R14;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R10;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBP;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+
+    uint8_t bytes_9[] = {
+        0x4c, 0x0f, 0x4f, 0xfc, // cmovg r15,rsp
+        0x48, 0x0f, 0x4f, 0xc0, // cmovg rax,rax
+        0x49, 0x0f, 0x4f, 0xdc, // cmovg rbx,r12
+        0x4d, 0x0f, 0x4f, 0xde, // cmovg r11,r14
+        0x4c, 0x0f, 0x4f, 0xd5, // cmovg r10,rbp
+        0x48, 0x0f, 0x4f, 0xed, // cmovg rbp,rbp
+    };
+
+    check(ctx, bytes_9);
+
+
+    c.opcode = JMP;
+    c.first.reg = R15;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RAX;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R10;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RSP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RCX;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = REG_NONE_;
+    c.first.offset = 0x1234567;
+    gArr_push_c(ctx->commands, c);
+
+    uint8_t bytes_10[] = {
+    	0x41, 0xff, 0xe7,   // jmp r15
+	    0xff, 0xe0,         // jmp rax
+	    0x41, 0xff, 0xe2,   // jmp r10
+	    0xff, 0xe4,         // jmp rsp
+	    0xff, 0xe1,         // jmp rcx
+    	0x41, 0xba, 0x67, 0x45, 0x23, 0x01, // mov r10d,0x1234567
+	    0x41, 0xff, 0xe2,   // jmp r10
+    };
+
+    check(ctx, bytes_10);
+
+
+    c.opcode = TEST;
+    c.first.reg = R15;
+    c.second.reg = RSP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RAX;
+    c.second.reg = RAX;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBX;
+    c.second.reg = R12;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R11;
+    c.second.reg = R14;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R10;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBP;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+
+    uint8_t bytes_11[] = {
+    	0x49, 0x85, 0xe7, // test r15,rsp
+	    0x48, 0x85, 0xc0, // test rax,rax
+    	0x4c, 0x85, 0xe3, // test rbx,r12
+	    0x4d, 0x85, 0xf3, // test r11,r14
+	    0x49, 0x85, 0xea, // test r10,rbp
+	    0x48, 0x85, 0xed, // test rbp,rbp
+    };
+
+    check(ctx, bytes_11);
+
+
+    c.opcode = TEST;
+    c.first.reg = R15;
+    c.second.reg = RSP;
+    gArr_push_c(ctx->commands, c);
+    c.opcode = RET;
+    gArr_push_c(ctx->commands, c);
+    c.opcode = TEST;
+    c.first.reg = RAX;
+    c.second.reg = RAX;
+    gArr_push_c(ctx->commands, c);
+
+    uint8_t bytes_12[] = {
+    	0x49, 0x85, 0xe7, // test r15,rsp
+        0xc3,             // ret
+	    0x48, 0x85, 0xc0, // test rax,rax
+    };
+
+    check(ctx, bytes_12);
+
+    //TODO MUL, DIV, JE
+
+    fprintf(stderr, "\n\nPassed all tests!\n");
+
+
+    gArr_delete_c(ctx->commands);
+    gArr_delete_b(ctx->bin);
 }

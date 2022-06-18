@@ -1614,6 +1614,7 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
         REGISTER_ f = iter->first.reg;
         REGISTER_ s = iter->second.reg;
         fprintf(stderr, "THERE!\n");
+        size_t jlen = -1;
         switch (iter->opcode) {
         case PUSH:
             assert(f != REG_NONE_ && f < REG_CNT_);
@@ -1700,6 +1701,7 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
         case CMOVL:
         case CMOVG:
+        case MUL:
             assert(f != REG_NONE_ && f < REG_CNT_);
             assert(s != REG_NONE_ && s < REG_CNT_);
             if (     REG_TYPE[f] == BASIC    && REG_TYPE[s] == BASIC)
@@ -1715,7 +1717,9 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
             PUSH_BYTE(0x0f);
 
-            if (iter->opcode == CMOVL) {
+            if (iter->opcode == MUL) {
+                PUSH_BYTE(0xaf);
+            } else if (iter->opcode == CMOVL) {
                 PUSH_BYTE(0x4c);
             } else if (iter->opcode == CMOVG) {
                 PUSH_BYTE(0x4f);
@@ -1728,6 +1732,20 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
         case RET:
             PUSH_BYTE(0xc3);
             break;
+
+        case JE:
+            assert(iter->labelId != -1);
+            assert(ctx->labelFixup[iter->labelId] >= ctx->bin->len);
+            jlen = ctx->labelFixup[iter->labelId] - ctx->bin->len;
+            if (jlen < 250) {
+                uint8_t b = jlen - 2;
+                PUSH_BYTE(0x74);
+                PUSH_BYTE(b);
+            } else {
+                assert(!"Not implemented yet!");
+            }
+            break;
+
 
         case LABLE:
             if (fixupRun)

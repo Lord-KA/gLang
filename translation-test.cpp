@@ -389,11 +389,68 @@ int main()
 
     check(ctx, bytes_12);
 
-    //TODO MUL, DIV, JE
+
+    ctx->labelFixup = (size_t*)calloc(6, sizeof(size_t));
+    ctx->labelFixup[0] = 0x11;
+    ctx->labelFixup[1] = 0x22;
+    ctx->labelFixup[2] = 0x33;
+    ctx->labelFixup[3] = 0x44;
+    ctx->labelFixup[4] = 0x55;
+    ctx->labelFixup[5] = 0x200;     // For now this will fail by assertion
+
+    c.opcode = JE;
+    for (size_t j = 0; j < 5; ++j) {
+        c.labelId = j;
+        gArr_push_c(ctx->commands, c);
+    }
+
+    uint8_t bytes_13[] = {
+        0x74, 0x0f,
+        0x74, 0x1e,
+        0x74, 0x2d,
+        0x74, 0x3c,
+        0x74, 0x4b,
+    };
+
+    check(ctx, bytes_13);
+
+
+    c.opcode = MUL;
+    c.first.reg = R15;
+    c.second.reg = RSP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RAX;
+    c.second.reg = RAX;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBX;
+    c.second.reg = R12;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R11;
+    c.second.reg = R14;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = R10;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+    c.first.reg = RBP;
+    c.second.reg = RBP;
+    gArr_push_c(ctx->commands, c);
+
+    uint8_t bytes_14[] = {
+    	0x4c, 0x0f, 0xaf, 0xfc, // imul r15,rsp
+	    0x48, 0x0f, 0xaf, 0xc0, // imul rax,rax
+	    0x49, 0x0f, 0xaf, 0xdc, // imul rbx,r12
+	    0x4d, 0x0f, 0xaf, 0xde, // imul r11,r14
+	    0x4c, 0x0f, 0xaf, 0xd5, // imul r10,rbp
+	    0x48, 0x0f, 0xaf, 0xed, // imul rbp,rbp
+    };
+
+    check(ctx, bytes_14);
+    //TODO DIV
 
     fprintf(stderr, "\n\nPassed all tests!\n");
 
 
     gArr_delete_c(ctx->commands);
     gArr_delete_b(ctx->bin);
+    free(ctx->labelFixup);
 }

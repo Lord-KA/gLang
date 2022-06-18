@@ -75,6 +75,21 @@ static char byte_arr[] = {
 };
 
 static char byte_arr[] = {
+	0x4c, 0x0f, 0xaf, 0xfc, // imul r15,rsp
+	0b1001100, 0b1111, 0b10101111, 0b11111100
+	0x48, 0x0f, 0xaf, 0xc0, // imul rax,rax
+	0b1001000, 0b1111, 0b10101111, 0b11000000
+	0x49, 0x0f, 0xaf, 0xdc, // imul rbx,r12
+	0b1001001, 0b1111, 0b10101111, 0b11011100
+	0x4d, 0x0f, 0xaf, 0xde, // imul r11,r14
+	0b1001101, 0b1111, 0b10101111, 0b11011110
+	0x4c, 0x0f, 0xaf, 0xd5, // imul r10,rbp
+	0b1001100, 0b1111, 0b10101111, 0b11010101
+	0x48, 0x0f, 0xaf, 0xed, // imul rbp,rbp
+	0b1001000, 0b1111, 0b10101111, 0b11101101
+};
+
+static char byte_arr[] = {
 	0x4c, 0x0f, 0x4c, 0xfc, // cmovl r15,rsp
 	0b1001100, 0b1111, 0b1001100, 0b11111100
 	0x48, 0x0f, 0x4c, 0xc0, // cmovl rax,rax

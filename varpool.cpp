@@ -24,7 +24,6 @@ varPool *varPool_new()
     p->inReg[REG_NONE_].allocated = true;
     p->inReg[RAX].allocated = true;
     p->inReg[R10].allocated = true;
-    p->inReg[RBX].allocated = true;
     p->inReg[RSP].allocated = true;
     p->inReg[RBP].allocated = true;
     return p;
@@ -92,7 +91,7 @@ Var *varPool_alloc(varPool *p, size_t nodeId)
 Var *varPool_free(varPool *p, Var *v)
 {
     assert(p != NULL);
-    assert(v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != RBX && v->reg != R10);
+    assert(v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != R10);
     assert(v->temp);
     v->allocated = false;
     v->temp = false;
@@ -108,13 +107,13 @@ void varPool_dump(varPool *p, FILE *out)
     fprintf(out, "varPool dump:\ninMemCnt = %zu\ninMemCap = %zu\noverall = %zu\n\n", p->inMemCnt, p->inMemCap, p->overall);
     for (size_t i = 0; i < REG_CNT_; ++i) {
         Var *v = p->inReg + i;
-        if (v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != RBX) {
+        if (v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != R10) {
             fprintf(stderr, "%s (%d)\t| offset = %zu\t| num = %zu\t| temp = %d\t| allocated = %d\t| nodeId = %zu\n", REGISTER_MSG[v->reg], v->reg, v->offset, v->num, v->temp, v->allocated, v->nodeId);
         }
     }
     for (size_t i = 0; i < p->inMemCap; ++i) {
         Var *v = p->inMem + i;
-        if (v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != RBX) {
+        if (v->reg != REG_CNT_ && v->reg != RSP && v->reg != RBP && v->reg != RAX && v->reg != R10) {
             fprintf(stderr, "%s (%d)\t| offset = %zu\t| num = %zu\t| temp = %d\t| allocated = %d\t| nodeId = %zu\n", REGISTER_MSG[v->reg], v->reg, v->offset, v->num, v->temp, v->allocated, v->nodeId);
         }
     }

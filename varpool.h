@@ -19,7 +19,7 @@ typedef enum {
     R8,
     R9,
 
-    RBX,            // Reserved     // Registers preserved
+    RBX,            // Registers preserved
     RSP,            // Service
     RBP,            // Service
     R12,
@@ -70,7 +70,7 @@ static const char REGISTER_MSG[REG_CNT_][10] = {
     "RCX",
     "R8",
     "R9",
-    "RBX",            // Reserved     // Registers preserved
+    "RBX",            // Registers preserved
     "RSP",            // Service
     "RBP",            // Service
     "R12",

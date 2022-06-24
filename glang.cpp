@@ -1090,7 +1090,7 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
             if (node->mode == gLang_Node_mode_add)
                 c.opcode = ADD;
             else
-                c.opcode = MUL;
+                c.opcode = IMUL;
             c.first  = *res;
             c.second = *tmpRes;
             PUSH_COMMAND(c);
@@ -1103,7 +1103,7 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         }
         *res_out = res;
 
-    } else if (node->mode == gLang_Node_mode_sub || node->mode == gLang_Node_mode_div || node->mode == gLang_Node_mode_exp) {
+    } else if (node->mode == gLang_Node_mode_sub || node->mode == gLang_Node_mode_exp) {
         size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
         GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
         GLANG_IS_OK(gLang_compileExpr(ctx, siblingId, &tmpRes));
@@ -1124,8 +1124,6 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         Command c = {};
         if (node->mode == gLang_Node_mode_sub)
             c.opcode = SUB;
-        else if (node->mode == gLang_Node_mode_div)
-            c.opcode = DIV;
         else
             c.opcode = POW;
         c.first  = *res;
@@ -1137,6 +1135,66 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         fprintf(out, "sub\n");
         */
         *res_out = res;
+
+    } else if (node->mode == gLang_Node_mode_div) {
+        size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
+        GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
+        GLANG_IS_OK(gLang_compileExpr(ctx, siblingId, &tmpRes));
+
+        if ((*res_out)->reg != RAX) {
+            Command c = {};
+            c.opcode = MOV;
+            c.first.reg = RAX;
+            c.second = **res_out;
+            PUSH_COMMAND(c);
+        }
+        Var *tmp = NULL;
+        if (p->inReg[RDX].allocated) {
+            tmp = varPool_alloc(p, -1);
+            GLANG_ASSERT_LOG(tmp != NULL, gLang_status_AllocErr);
+
+            Command c = {};
+            c.opcode = MOV;
+            c.first = *tmp;
+            c.second.reg = RDX;
+            PUSH_COMMAND(c);
+
+            c.first.reg = RDX;
+            c.second.reg = REG_NONE_;
+            c.second.offset = -1;
+            c.second.num = 0x00;
+            PUSH_COMMAND(c);
+        }
+
+        Command c = {};
+        c.opcode = IDIV;
+        if (tmpRes->reg != RDX)
+            c.first = *tmpRes;
+        else
+            c.first = *tmp;
+        PUSH_COMMAND(c);
+        if (tmpRes->temp)
+            varPool_free(p, tmpRes);
+        /*
+        fprintf(out, "sub\n");
+        */
+        if ((*res_out)->reg != RAX) {
+            Command c = {};
+            c.opcode = MOV;
+            c.first = **res_out;
+            c.second.reg = RAX;
+            PUSH_COMMAND(c);
+        }
+        if (tmp != NULL) {
+            Command c = {};
+            c.opcode = MOV;
+            c.first.reg = RDX;
+            c.second = *tmp;
+            PUSH_COMMAND(c);
+
+            varPool_free(p, tmp);
+        }
+
 
     } else if (node->mode == gLang_Node_mode_func) {
         childId = GLANG_NODE_BY_ID(childId)->child;
@@ -1471,6 +1529,15 @@ static gLang_status gLang_getArgs(gLang *ctx, size_t siblingId, size_t num, size
     return gLang_status_OK;
 }
 
+size_t gLang_getFuncLabel(gLang *ctx, char *name)
+{
+    assert(ctx != NULL);
+    assert(ctx->labelCnt != -1);
+    assert(ctx->funcFixup != NULL);
+
+    //TODO
+}
+
 gLang_status gLang_compile(gLang *ctx)
 {
     GLANG_CHECK_SELF_PTR(ctx);
@@ -1584,6 +1651,31 @@ gLang_status gLang_compile(gLang *ctx)
     return gLang_status_OK;
 }
 
+static gLang_status gLang_translate_movNum(gLang *ctx, REGISTER_ reg, long num)
+{
+    if (REG_TYPE[reg] == BASIC)
+        PUSH_BYTE(0x48);
+    else
+        PUSH_BYTE(0x49);
+    PUSH_BYTE(0xb0 | 0b1000 | REG_CODE[reg]);
+
+    long n = num;
+    bool isNegative = num < 0;
+    char *c = (char*)&num;
+    size_t i = 0;
+    for (i = 0; i < 8 && n != (isNegative ? -1 : 0); ++i, ++c) {
+        PUSH_BYTE(*c);
+        n >>= 8;
+    }
+    for (size_t j = 0; j < 8 - i; ++j) {
+        if (isNegative)
+            PUSH_BYTE(0xff);
+        else
+            PUSH_BYTE(0x00);
+    }
+    return gLang_status_OK;
+}
+
 gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 {
     GLANG_CHECK_SELF_PTR(ctx);
@@ -1613,7 +1705,6 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
     for (size_t i = 0; i < ctx->commands->len; ++i, ++iter) {
         REGISTER_ f = iter->first.reg;
         REGISTER_ s = iter->second.reg;
-        fprintf(stderr, "THERE!\n");
         size_t jlen = -1;
         switch (iter->opcode) {
         case PUSH:
@@ -1636,10 +1727,15 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
             }
             break;
 
+        case MOV:
+            if (s == REG_NONE_) {
+                assert(f != REG_NONE_ && f < REG_CNT_);
+                GLANG_IS_OK(gLang_translate_movNum(ctx, f, iter->second.num));
+                break;
+            }
         case ADD:
         case SUB:
         case CMP:
-        case MOV:
         case TEST:
             assert(f != REG_NONE_ && f < REG_CNT_);
             assert(s != REG_NONE_ && s < REG_CNT_);
@@ -1669,25 +1765,10 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
             }
             PUSH_BYTE(0b11000000 | REG_CODE[s] << 3 | REG_CODE[f]);
             break;
-
         case CALL:
         case JMP:
             if (iter->first.reg == REG_NONE_ && iter->first.offset != -1) {
-                size_t addr = iter->first.offset;
-                PUSH_BYTE(0x41);                        // mov r10, num
-                PUSH_BYTE(0xba);
-                size_t i = 0;
-                while (addr > 0) {
-                    PUSH_BYTE(addr & 0xff);
-                    addr >>= 8;
-                    ++i;
-                }
-                if (i <= 4)
-                    i = 4 - i;
-                else
-                    i = 8 - i;
-                for (size_t j = 0; j < i; ++j)
-                    PUSH_BYTE(0x00);
+                GLANG_IS_OK(gLang_translate_movNum(ctx, R10, iter->first.offset));
                 f = R10;
             }
             if (REG_TYPE[f] == EXTENDED)
@@ -1701,7 +1782,7 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
         case CMOVL:
         case CMOVG:
-        case MUL:
+        case IMUL:
             assert(f != REG_NONE_ && f < REG_CNT_);
             assert(s != REG_NONE_ && s < REG_CNT_);
             if (     REG_TYPE[f] == BASIC    && REG_TYPE[s] == BASIC)
@@ -1717,7 +1798,7 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
             PUSH_BYTE(0x0f);
 
-            if (iter->opcode == MUL) {
+            if (iter->opcode == IMUL) {
                 PUSH_BYTE(0xaf);
             } else if (iter->opcode == CMOVL) {
                 PUSH_BYTE(0x4c);
@@ -1746,10 +1827,23 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
             }
             break;
 
+        case IDIV:
+            assert(f != REG_NONE_ && f < REG_CNT_);
+            if (REG_TYPE[f] == EXTENDED)
+                PUSH_BYTE(0x49);
+            else if (REG_TYPE[f] == BASIC)
+                PUSH_BYTE(0x48);
+            else
+                assert(!"Not implemented yet!");
+            PUSH_BYTE(0xf7);
+            PUSH_BYTE(0xf0 | 0b1000 | REG_CODE[f]);
+            break;
 
         case LABLE:
-            if (fixupRun)
+            if (fixupRun) {
+                assert(iter->labelId != -1);
                 ctx->labelFixup[iter->labelId] = ctx->bin->len;
+            }
             break;
         }
     }

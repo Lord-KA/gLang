@@ -82,6 +82,11 @@ gLang_status gLang_dtor(gLang *ctx)
     if (gPtrValid(ctx->commands))
         gArr_delete_c(ctx->commands);
 
+    if (gPtrValid(ctx->bin))
+        gArr_delete_b(ctx->bin);
+
+    free(ctx->labelFixup);
+
     return gLang_status_OK;
 }
 
@@ -1645,7 +1650,7 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
     for (size_t i = 0; i < ctx->commands->len; ++i, ++iter) {
         REGISTER_ f = iter->first.reg;
         REGISTER_ s = iter->second.reg;
-        size_t jlen = -1;
+        long jlen = -1;
         switch (iter->opcode) {
         case PUSH:
             assert(f != REG_NONE_ && f < REG_CNT_);
@@ -1678,6 +1683,11 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
         case CMP:
         case TEST:
             assert(f != REG_NONE_ && f < REG_CNT_);
+            if (s == REG_NONE_) {
+                assert(iter->second.offset == -1);
+                GLANG_IS_OK(gLang_translate_movNum(ctx, R10, iter->second.num));
+                s = R10;
+            }
             assert(s != REG_NONE_ && s < REG_CNT_);
             if (     REG_TYPE[f] == BASIC    && REG_TYPE[s] == BASIC)
                 PUSH_BYTE(0x48);
@@ -1732,6 +1742,11 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
         case CMOVG:
         case IMUL:
             assert(f != REG_NONE_ && f < REG_CNT_);
+            if (s == REG_NONE_) {
+                assert(iter->second.offset == -1);
+                GLANG_IS_OK(gLang_translate_movNum(ctx, R10, iter->second.num));
+                s = R10;
+            }
             assert(s != REG_NONE_ && s < REG_CNT_);
             if (     REG_TYPE[f] == BASIC    && REG_TYPE[s] == BASIC)
                 PUSH_BYTE(0x48);
@@ -1764,15 +1779,14 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
         case JE:
             assert(iter->labelId != -1);
-            assert(ctx->labelFixup[iter->labelId] >= ctx->bin->len);
+            assert(ctx->labelFixup[iter->labelId] != -1);
+            assert(fixupRun || ctx->labelFixup[iter->labelId] >= ctx->bin->len);
             jlen = ctx->labelFixup[iter->labelId] - ctx->bin->len;
-            if (jlen < 250) {
-                uint8_t b = jlen - 2;
-                PUSH_BYTE(0x74);
-                PUSH_BYTE(b);
-            } else {
-                assert(!"Not implemented yet!");
-            }
+            fprintf(stderr, "jlen = %ld | pos = %zu | id = %zu\n", jlen, ctx->bin->len, iter->labelId);
+            assert(fixupRun || (0 <= jlen < 250l && "Not implemented yet!"));
+
+            PUSH_BYTE(0x74);
+            PUSH_BYTE(jlen - 2);
             break;
 
         case IDIV:
@@ -1789,6 +1803,9 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
         case LABLE:
             if (fixupRun) {
+                if (iter->labelId == -1 && iter->name[0] != '\0') {
+                    iter->labelId = gHT_find(ctx->funcFixup, iter->name);
+                }
                 assert(iter->labelId != -1);
                 ctx->labelFixup[iter->labelId] = ctx->bin->len;
             }
@@ -1797,6 +1814,12 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
     }
     return gLang_status_OK;
 }
+
+gLang_status gLang_dumpBytes(gLang *ctx, FILE *out)
+{
+    //TODO
+}
+
 
 gLang_status gLang_commandsDump(gLang *ctx, FILE *out)
 {

@@ -107,7 +107,7 @@ int main(int argc, char **argv)
     #ifdef EXTRA_VERBOSE
         fprintf(stderr, "\n\nLabel fixups:\n");
         if (ctx->labelFixup != NULL) {
-            for (size_t i = 0; i < ctx->labelCnt; ++i) {
+            for (size_t i = 1; i < ctx->labelCnt; ++i) {
                 assert(ctx->labelFixup[i] != 0);
                 fprintf(stderr, "%zu\t| offset = %zu\n", i, ctx->labelFixup[i]);
             }
@@ -115,6 +115,8 @@ int main(int argc, char **argv)
             fprintf(stderr, "EMPTY!\n");
         }
     #endif
+
+    gLang_translate(ctx, false);
 
 finish:
     fclose(out);

@@ -18,7 +18,7 @@ include(FetchContent)
 FetchContent_Declare(
   gutils
   GIT_REPOSITORY https://github.com/lord-ka/gutils.git
-  GIT_TAG        release-1.0.4
+  # GIT_TAG        release-1.0.4 TODO
 )
 
 FetchContent_GetProperties(gutils)
@@ -45,6 +45,16 @@ FetchContent_Declare(
 if(NOT gtree_POPULATED)
   FetchContent_Populate(gtree)
   include_directories(${gtree_SOURCE_DIR})
+endif()
+
+FetchContent_Declare(
+  ghashtable
+  GIT_REPOSITORY https://github.com/Lord-KA/gHashTable.git
+  # GIT_TAG        release-1.0.1 TODO
+)
+if(NOT ghashtable_POPULATED)
+  FetchContent_Populate(ghashtable)
+  include_directories(${ghashtable_SOURCE_DIR})
 endif()
 
 FetchContent_Declare(

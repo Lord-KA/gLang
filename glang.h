@@ -2,6 +2,12 @@
 
 #include "commands.h"
 #include "varpool.h"
+#include "elf-gen.h"
+
+#ifdef EXTRA_VERBOSE
+#define GHT_CAPACITY 30
+#endif
+#include "ghashtable.h"
 
 #define GARR_GENERIC(name) TEMPLATE(name, c)
 #define T Command
@@ -32,6 +38,8 @@ static const size_t GLANG_MAX_LABEL_CNT = 10000;
 static const size_t GLANG_MAX_BIN_LEN   = 1000000;
 
 static const double GLANG_EPS = 1e-3;
+
+static const size_t GLANG_START_OFFSET = CODE_OFFSET_ + LOAD_VIRT_ADDR_;
 
 enum gLang_Node_mode {
     gLang_Node_mode_none,
@@ -171,20 +179,20 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
  * WARNING: do not forget to undef new macro
  */
 
-#ifndef NLOGS
-#define GLANG_ASSERT_LOG(expr, errCode) ({                                           \
-        bool macroRes = expr;                                                         \
-        if (!macroRes && errCode >= gLang_status_ParsingErr_UnknownLex && errCode <= gLang_status_ParsingErr_NoSemicolon)\
-            fprintf(ctx->logStream, "Error in lexeme No. %lu:\n", GLANG_CUR_NODE_ID());\
-        if (errCode >= gLang_status_CNT || errCode < 0)  {                             \
-            ASSERT_LOG(false, gLang_status_CNT,                                         \
-                    gLang_statusMsg[gLang_status_CNT], ctx->logStream);              \
-        }                                                                                 \
-        ASSERT_LOG(macroRes, errCode, gLang_statusMsg[errCode], ctx->logStream);           \
+#define GLANG_THROW_ERR(errCode) ({                                                                                          \
+        if (errCode >= gLang_status_ParsingErr_UnknownLex && errCode <= gLang_status_ParsingErr_NoSemicolon)                  \
+            fprintf(ctx->logStream, "Error in lexeme No. %lu:\n", GLANG_CUR_NODE_ID());                                        \
+        if (errCode >= gLang_status_CNT || errCode < 0)  {                                                                      \
+            ASSERT_LOG(false, gLang_status_CNT,                                                                                  \
+                    gLang_statusMsg[gLang_status_CNT], ctx->logStream);                                                           \
+        }                                                                                                                          \
+        ASSERT_LOG(false, errCode, gLang_statusMsg[errCode], ctx->logStream);                                                       \
     })
-#else
-#define GLANG_ASSERT_LOG(expr, errCode) ASSERT_LOG(expr, errCode, gLang_statusMsg[errCode], NULL)
-#endif
+
+#define GLANG_ASSERT_LOG(expr, errCode) ({                                                                                  \
+        if (!(expr))                                                                                                         \
+            GLANG_THROW_ERR(errCode);                                                                                         \
+    })
 
 #define GLANG_CHECK_SELF_PTR(ptr) ASSERT_LOG(gPtrValid(ptr), gLang_status_BadStructPtr,     \
                                                  gLang_statusMsg[gLang_status_BadStructPtr], \
@@ -197,7 +205,7 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 #define GLANG_NODE_BY_ID(macroId) ({                                                                    \
     assert(macroId != -1);                                                                               \
     gTree_Node *macroNode = NULL;                                                                         \
-    GLANG_ASSERT_LOG(gObjPool_get(&ctx->tree.pool, (macroId), &macroNode) == gObjPool_status_OK,       \
+    GLANG_ASSERT_LOG(gObjPool_get(&ctx->tree.pool, (macroId), &macroNode) == gObjPool_status_OK,           \
                             gLang_status_ObjPoolErr);                                                       \
     assert(gPtrValid(macroNode));                                                                            \
     macroNode;                                                                                                \
@@ -207,9 +215,9 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 #define GLANG_POOL_ALLOC() ({                                                                 \
     size_t macroId = -1;                                                                       \
     gTree_Node *macroNode = NULL;                                                               \
-    GLANG_ASSERT_LOG(gObjPool_alloc(&ctx->tree.pool, &macroId) == gObjPool_status_OK,        \
+    GLANG_ASSERT_LOG(gObjPool_alloc(&ctx->tree.pool, &macroId) == gObjPool_status_OK,            \
                             gLang_status_ObjPoolErr);                                             \
-    GLANG_ASSERT_LOG(gObjPool_get(&ctx->tree.pool, macroId, &macroNode) == gObjPool_status_OK, \
+    GLANG_ASSERT_LOG(gObjPool_get(&ctx->tree.pool, macroId, &macroNode) == gObjPool_status_OK,     \
                             gLang_status_ObjPoolErr);                                               \
     macroNode->sibling = -1;                                                                         \
     macroNode->parent  = -1;                                                                          \
@@ -222,7 +230,7 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 #define GLANG_POOL_FREE(macroId)
 #else
 #define GLANG_POOL_FREE(macroId) ({                                                          \
-    GLANG_ASSERT_LOG(gObjPool_free(&ctx->tree.pool, macroId) == gObjPool_status_OK,       \
+    GLANG_ASSERT_LOG(gObjPool_free(&ctx->tree.pool, macroId) == gObjPool_status_OK,           \
                             gLang_status_ObjPoolErr);                                          \
 })
 #endif
@@ -238,32 +246,32 @@ static const char gLang_statusMsg[gLang_status_CNT + 1][MAX_LINE_LEN] = {
 
 #define GLANG_CUR_NODE() ({                                                                         \
     gLang_Node *macroNode = NULL;                                                                    \
-    if (ctx->lexemeCur < ctx->LexemeIds.len)                                                  \
-        macroNode = &(GLANG_NODE_BY_ID(ctx->LexemeIds.data[ctx->lexemeCur])->data);            \
+    if (ctx->lexemeCur < ctx->LexemeIds.len)                                                          \
+        macroNode = &(GLANG_NODE_BY_ID(ctx->LexemeIds.data[ctx->lexemeCur])->data);                    \
     macroNode;                                                                                          \
 })
 
 #define GLANG_CUR_NODE_ID() ({                                                                      \
     size_t macroNodeId = -1;                                                                         \
-    if (ctx->lexemeCur < ctx->LexemeIds.len)                                                  \
-        macroNodeId = ctx->LexemeIds.data[ctx->lexemeCur];                                     \
+    if (ctx->lexemeCur < ctx->LexemeIds.len)                                                          \
+        macroNodeId = ctx->LexemeIds.data[ctx->lexemeCur];                                             \
     macroNodeId;                                                                                        \
 })
 
 #ifdef EXTRA_VERBOSE
 #define GLANG_PARSER_CHECK() ({                                                                 \
-    fprintf(ctx->logStream, "%s curLit = %lu\n", __func__, GLANG_CUR_NODE_ID());             \
-    GLANG_CHECK_SELF_PTR(ctx);                                                                \
+    fprintf(ctx->logStream, "%s curLit = %lu\n", __func__, GLANG_CUR_NODE_ID());                 \
+    GLANG_CHECK_SELF_PTR(ctx);                                                                    \
     GLANG_ID_CHECK(rootId);                                                                        \
     GLANG_ASSERT_LOG(rootId != -1, gLang_status_ParsingErr_BadRootId);                              \
-    GLANG_ASSERT_LOG(ctx->lexemeCur < ctx->LexemeIds.len, gLang_status_ParsingErr_BadCur);   \
+    GLANG_ASSERT_LOG(ctx->lexemeCur < ctx->LexemeIds.len, gLang_status_ParsingErr_BadCur);           \
 })
 #else
 #define GLANG_PARSER_CHECK() ({                                                                 \
-    GLANG_CHECK_SELF_PTR(ctx);                                                               \
+    GLANG_CHECK_SELF_PTR(ctx);                                                                   \
     GLANG_ID_CHECK(rootId);                                                                       \
     GLANG_ASSERT_LOG(rootId != -1, gLang_status_ParsingErr_BadRootId);                             \
-    GLANG_ASSERT_LOG(ctx->lexemeCur < ctx->LexemeIds.len, gLang_status_ParsingErr_BadCur);  \
+    GLANG_ASSERT_LOG(ctx->lexemeCur < ctx->LexemeIds.len, gLang_status_ParsingErr_BadCur);          \
 })
 #endif
 
@@ -291,6 +299,7 @@ struct gLang {
     size_t   *labelFixup = {};
     gArr_c   *commands = {};
     gArr_b   *bin = {};
+    gHT      *funcFixup = {};
 } typedef gLang;
 
 

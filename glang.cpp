@@ -143,7 +143,7 @@ forEnd:
         char literal[GLANG_MAX_LIT_LEN] = "";
         if (litEnd - cur >= GLANG_MAX_LIT_LEN) {
             fprintf(ctx->logStream, "ERROR: literal is too long (MAX_LIT_LEN = %lu)\n", GLANG_MAX_LIT_LEN);
-            GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_UnknownLex);
+            GLANG_THROW_ERR(gLang_status_ParsingErr_UnknownLex);
         }
         strncpy(literal, cur, litEnd - cur);
         if (*cur == '-') {
@@ -169,7 +169,7 @@ forEnd:
             } else {
                 node->mode = gLang_Node_mode_unknown;
                 fprintf(ctx->logStream, "ERROR: bad function/variable name; it should not start with a digit!\n");
-                GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_UnknownLex);
+                GLANG_THROW_ERR(gLang_status_ParsingErr_UnknownLex);
             }
         } else {
             /* keyword case */
@@ -187,7 +187,7 @@ forEnd:
                 if (!(isdigit(literal[i]) || literal[i] == '_' || isalpha(literal[i]))) {
                     node->mode = gLang_Node_mode_unknown;
                     fprintf(ctx->logStream, "ERROR: bad function/variable name; it should only contain letters, digits and '_'!\n");
-                    GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_UnknownLex);
+                    GLANG_THROW_ERR(gLang_status_ParsingErr_UnknownLex);
                 }
             }
 
@@ -312,7 +312,7 @@ finish:
         ++ctx->lexemeCur;
     } else {
         fprintf(ctx->logStream, "ERROR: no semicolon at the end of the line!\n");   //TODO add position outp
-        GLANG_ASSERT_LOG(false, gLang_status_ParsingErr_NoSemicolon);
+        GLANG_THROW_ERR(gLang_status_ParsingErr_NoSemicolon);
     }
     return gLang_status_OK;
 }
@@ -1054,19 +1054,10 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         c.second.offset = -1;
         c.second.num = node->value;
         PUSH_COMMAND(c);
-        /*
-        if (node->value < 0)
-            fprintf(out, "push 0%g\n", node->value);
-        else
-            fprintf(out, "push %g\n", node->value);
-        */
 
     } else if (node->mode == gLang_Node_mode_var) {
         *res_out = node->var;
         GLANG_ASSERT_LOG(*res_out != NULL, gLang_status_AllocErr);
-        /*
-        fprintf(out, "push [(fx - %lu) * 8] ; (%s)\n", node->varId, node->varName);
-        */
 
     } else if (node->mode == gLang_Node_mode_add || node->mode == gLang_Node_mode_mul) {
         GLANG_IS_OK(gLang_compileExpr(ctx, childId, res_out));
@@ -1096,9 +1087,6 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
             PUSH_COMMAND(c);
             if (tmpRes->temp)
                 varPool_free(p, tmpRes);
-            /*
-            fprintf(out, "add\n");
-            */
             childId = GLANG_NODE_BY_ID(childId)->sibling;
         }
         *res_out = res;
@@ -1131,9 +1119,6 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         PUSH_COMMAND(c);
         if (tmpRes->temp)
             varPool_free(p, tmpRes);
-        /*
-        fprintf(out, "sub\n");
-        */
         *res_out = res;
 
     } else if (node->mode == gLang_Node_mode_div) {
@@ -1175,9 +1160,6 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         PUSH_COMMAND(c);
         if (tmpRes->temp)
             varPool_free(p, tmpRes);
-        /*
-        fprintf(out, "sub\n");
-        */
         if ((*res_out)->reg != RAX) {
             Command c = {};
             c.opcode = MOV;
@@ -1242,8 +1224,7 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         Command c = {};
         c.opcode = CALL;
         strncpy(c.name, node->funcName, GLANG_MAX_LIT_LEN);
-        c.labelId = ctx->labelCnt;
-        ++ctx->labelCnt;
+        c.labelId = -1;
         PUSH_COMMAND(c);
 
         assert(i != 0);
@@ -1309,12 +1290,6 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         c.second.offset = -1;
         c.second.num = 1;
         PUSH_COMMAND(c);
-        /*
-        fprintf(out, "cmp\n");
-        fprintf(out, "mov ax, 0\n");
-        fprintf(out, "cmovl ax, 1\n");
-        fprintf(out, "push ax\n");
-        */
         *res_out = res;
 
     } else if (node->mode == gLang_Node_mode_keyword &&
@@ -1322,9 +1297,6 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
                    node->keyword < gLang_Node_keyword_CNT) {
         assert(!"This feature is considered too sweet and left till better days");      //TODO
         GLANG_IS_OK(gLang_compileExpr(ctx, childId));
-        /*
-        fprintf(out, "%s\n", gLang_Node_keywordView[node->keyword]);
-        */
 
     } else {
         assert(!"This should never happen, PANIC!!1!");
@@ -1357,9 +1329,6 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
     if (node->mode == gLang_Node_mode_keyword &&
             node->keyword == gLang_Node_keyword_if) {
         size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
-        /*
-        fprintf(out, "; IF started\n");
-        */
         Var *res = NULL;
         GLANG_IS_OK(gLang_compileExpr(ctx, childId, &res));
         Command c = {};
@@ -1374,19 +1343,11 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
         c.labelId = ctx->labelCnt;
         PUSH_COMMAND(c);
 
-        /*
-        fprintf(out, "pop ax\n");
-        fprintf(out, "cmp ax, 0\n");
-        fprintf(out, "jeq label_%lu\n", ifLabel);
-        */
         GLANG_IS_OK(gLang_compileBlk(ctx, siblingId));
 
         c.opcode = LABLE;
         c.labelId = ctx->labelCnt;
         PUSH_COMMAND(c);
-        /*
-        fprintf(out, "label_%lu:\n", ifLabel);
-        */
         ++ctx->labelCnt;
 
     } else if (node->mode == gLang_Node_mode_keyword &&
@@ -1397,9 +1358,6 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
         c.opcode = LABLE;
         c.labelId = ctx->labelCnt;
         PUSH_COMMAND(c);
-        /*
-        fprintf(out, "label_beg_%lu:\n", ctx->labelCnt);
-        */
         Var *res = NULL;
         GLANG_IS_OK(gLang_compileExpr(ctx, childId, &res));
 
@@ -1412,11 +1370,6 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
         c.labelId = ctx->labelCnt + 1;
         PUSH_COMMAND(c);
 
-        /*
-        fprintf(out, "pop ax\n");
-        fprintf(out, "cmp ax, 0\n");
-        fprintf(out, "jeq label_end_%lu\n", ctx->labelCnt + 1);
-        */
         GLANG_IS_OK(gLang_compileBlk(ctx, blkId));
 
         c.opcode = JMP;
@@ -1426,10 +1379,6 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
         c.opcode = LABLE;
         c.labelId = ctx->labelCnt + 1;
         PUSH_COMMAND(c);
-        /*
-        fprintf(out, "jmp label_beg_%lu\n", ctx->labelCnt);
-        fprintf(out, "label_end_%lu:\n", ctx->labelCnt + 1);
-        */
         ctx->labelCnt += 2;
 
     } else if (node->mode == gLang_Node_mode_assign) {
@@ -1443,9 +1392,6 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
         c.first  = *node->var;
         c.second = *res;
         PUSH_COMMAND(c);
-        /*
-        fprintf(out, "pop [(fx - %lu) * 8] ; (%s)\n", node->varId, node->varName);
-        */
 
     } else if (node->mode == gLang_Node_mode_keyword &&
             node->keyword == gLang_Node_keyword_return) {
@@ -1476,14 +1422,6 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
 
         c.opcode = RET;
         PUSH_COMMAND(c);
-        /*
-        fprintf(out, "sub fx, %lu\n", offset);
-        fprintf(out, "pop bx\n");
-        fprintf(out, "pop ax\n");
-        fprintf(out, "push bx\n");
-        fprintf(out, "push ax\n");
-        fprintf(out, "ret\n");
-        */
 
     } else if (node->mode == gLang_Node_mode_keyword &&
             node->keyword == gLang_Node_keyword_print) {
@@ -1495,9 +1433,6 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
         PUSH_COMMAND(c);
         if (res->temp)
             varPool_free(p, res);
-        /*
-        fprintf(out, "out\n");
-        */
 
     } else {
         Var *res = NULL;
@@ -1523,9 +1458,6 @@ static gLang_status gLang_getArgs(gLang *ctx, size_t siblingId, size_t num, size
         c.first = *node->data.var;
         PUSH_COMMAND(c);
     }
-    /*
-    fprintf(ctx->asmOut, "pop [(fx - %lu) * 8]; (%s)\n", node->data.varId, node->data.varName);
-    */
     return gLang_status_OK;
 }
 
@@ -1541,6 +1473,13 @@ size_t gLang_getFuncLabel(gLang *ctx, char *name)
 gLang_status gLang_compile(gLang *ctx)
 {
     GLANG_CHECK_SELF_PTR(ctx);
+
+    if (ctx->funcFixup != NULL) {
+        fprintf(ctx->logStream, "WARNING: function fixup table isn't empty!\n");
+        gHT_delete(ctx->funcFixup);
+    }
+    ctx->funcFixup = gHT_new();
+    GLANG_ASSERT_LOG(ctx->funcFixup != NULL, gLang_status_AllocErr);
 
     size_t funcRootId = GLANG_NODE_BY_ID(ctx->tree.root)->child;
     if (funcRootId == -1) {
@@ -1565,17 +1504,11 @@ gLang_status gLang_compile(gLang *ctx)
     Command c = {};
     c.opcode = CALL;
     strcpy(c.name, "main");
-    c.labelId = ctx->labelCnt;
-    ++ctx->labelCnt;
+    c.labelId = -1;
     PUSH_COMMAND(c);
+
     c.opcode = EXIT;
     PUSH_COMMAND(c);
-    /*
-    fprintf(out, "main:\n");                    // Equivalent in gAsm
-    fprintf(out, "  call func_main\n");
-    fprintf(out, "  out\n");
-    fprintf(out, "  ret\n");
-    */
     funcRootId = GLANG_NODE_BY_ID(ctx->tree.root)->child;
     ctx->varTablesCur = 0;
     while (funcRootId != -1) {
@@ -1591,13 +1524,13 @@ gLang_status gLang_compile(gLang *ctx)
         #endif
 
         c.opcode = LABLE;
-        c.labelId = -1;
+        c.labelId = ctx->labelCnt;
         strncpy(c.name, node->data.funcName, GLANG_MAX_LIT_LEN);
+        ++ctx->labelCnt;
         PUSH_COMMAND(c);
 
-        /*
-        fprintf(out, "pop ex\n");
-        */
+        gHT_insert(ctx->funcFixup, c.name, c.labelId, false);
+
         size_t argId = node->child;
         node = GLANG_NODE_BY_ID(argId);
         argId = node->child;
@@ -1618,9 +1551,6 @@ gLang_status gLang_compile(gLang *ctx)
                 PUSH_COMMAND(c);
             }
         }
-        /*
-        fprintf(out, "push ex\n");
-        */
 
         c.opcode = PUSH;
         c.first.reg = RBP;
@@ -1637,10 +1567,6 @@ gLang_status gLang_compile(gLang *ctx)
         c.second.offset = -1;
         c.second.num = -1;
         PUSH_COMMAND(c);                    //TODO don't forget to change offset after precompile finished couning it
-        /*
-        fprintf(out, "func_%s:\n", node->data.funcName);
-        fprintf(out, "add fx, %lu\n", offset);
-        */
 
         GLANG_IS_OK(gLang_compileBlk(ctx, blkId));
 
@@ -1684,6 +1610,10 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
         fprintf(ctx->logStream, "There is nothing to translate, have you run the compiler?\n");
         return gLang_status_NothingToDo;
     }
+    if (ctx->funcFixup == NULL) {
+        fprintf(ctx->logStream, "ERROR: no function fixup table found! Have you run the compiler?\n");
+        return gLang_status_NothingToDo;
+    }
 
     if (ctx->bin != NULL) {
         fprintf(ctx->logStream, "WARNING: bin buffer is not empty!\n");
@@ -1695,6 +1625,10 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
     Command *iter = ctx->commands->data;
     size_t offset = 0;
     if (fixupRun) {
+        #ifdef EXTRA_VERBOSE
+            gHT_dump(ctx->funcFixup, ctx->logStream);
+        #endif
+
         if (ctx->labelFixup != NULL) {
             fprintf(ctx->logStream, "WARNING: label fixup table isn't empty!\n");
             free(ctx->labelFixup);
@@ -1702,6 +1636,12 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
         ctx->labelFixup = (size_t*)calloc(sizeof(size_t), GLANG_MAX_LABEL_CNT);
         GLANG_ASSERT_LOG(ctx->labelFixup != NULL, gLang_status_AllocErr);
     }
+    if (ctx->labelFixup == NULL) {
+        fprintf(ctx->logStream, "ERROR: label fixup table is empty!\n");
+        GLANG_THROW_ERR(gLang_status_AllocErr);
+    }
+
+
     for (size_t i = 0; i < ctx->commands->len; ++i, ++iter) {
         REGISTER_ f = iter->first.reg;
         REGISTER_ s = iter->second.reg;
@@ -1765,10 +1705,18 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
             }
             PUSH_BYTE(0b11000000 | REG_CODE[s] << 3 | REG_CODE[f]);
             break;
+
         case CALL:
+            if (iter->labelId == -1 && iter->name[0] != '\0') {
+                iter->labelId = gHT_find(ctx->funcFixup, iter->name);
+            }
         case JMP:
-            if (iter->first.reg == REG_NONE_ && iter->first.offset != -1) {
-                GLANG_IS_OK(gLang_translate_movNum(ctx, R10, iter->first.offset));
+            if (f == REG_NONE_ && iter->labelId != -1) {
+                long offset = GLANG_START_OFFSET + ctx->labelFixup[iter->labelId];
+                GLANG_IS_OK(gLang_translate_movNum(ctx, R10, offset));
+                f = R10;
+            } else if (f == REG_NONE_ && iter->first.offset == -1) {
+                GLANG_IS_OK(gLang_translate_movNum(ctx, R10, iter->first.num));
                 f = R10;
             }
             if (REG_TYPE[f] == EXTENDED)

@@ -67,21 +67,5 @@ if(NOT gstack_POPULATED)
   include_directories(${gstack_SOURCE_DIR})
 endif()
 
-FetchContent_Declare(
-  gspu
-  GIT_REPOSITORY https://github.com/lord-KA/spu.git
-  GIT_TAG        release-1.1.1
-)
-if(NOT gspu_POPULATED)
-  FetchContent_Populate(gspu)
-  add_subdirectory(${gspu_SOURCE_DIR})
-endif()
-
-add_executable(glang glang-main.cpp glang.cpp glang.h varpool.cpp varpool.h commands.h)
-add_executable(translation-test translation-test.cpp glang.cpp glang.h varpool.cpp varpool.h commands.h)
-
-add_custom_command(
-  OUTPUT "assembler"
-  COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/build/_deps/gspu-src/assembler ${CMAKE_CURRENT_BINARY_DIR}
-  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/_deps/gspu-src/assembler
-)
+add_executable(glang glang-main.cpp glang.cpp varpool.cpp)
+add_executable(translation-test translation-test.cpp glang.cpp varpool.cpp)

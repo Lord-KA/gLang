@@ -85,6 +85,9 @@ gLang_status gLang_dtor(gLang *ctx)
     if (gPtrValid(ctx->bin))
         gArr_delete_b(ctx->bin);
 
+    if (gPtrValid(ctx->funcFixup))
+        gHT_delete(ctx->funcFixup);
+
     free(ctx->labelFixup);
 
     return gLang_status_OK;
@@ -1820,7 +1823,7 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
             }
             break;
 
-        case EXIT:
+        case EXIT: {
             const uint8_t exitBytes[] = {
                 0x48, 0xc7, 0xc0, 0x3c, 0x00, 0x00, 0x00, // mov rax, 60
                 0x48, 0xc7, 0xc7, 0x00, 0x00, 0x00, 0x00, // mov rdi, 0
@@ -1828,12 +1831,15 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
             };
             GLANG_ASSERT_LOG(gArr_cat_b(ctx->bin, exitBytes, sizeof(exitBytes)) == 0, gLang_status_AllocErr);
             break;
+        }
 
         case OUT:
+            assert(iter->opcode == OUT);
             //TODO
             break;
 
         case POW:
+            assert(iter->opcode == POW);
             //TODO
             break;
         }

@@ -1819,6 +1819,23 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
                 ctx->labelFixup[iter->labelId] = ctx->bin->len;
             }
             break;
+
+        case EXIT:
+            const uint8_t exitBytes[] = {
+                0x48, 0xc7, 0xc0, 0x3c, 0x00, 0x00, 0x00, // mov rax, 60
+                0x48, 0xc7, 0xc7, 0x00, 0x00, 0x00, 0x00, // mov rdi, 0
+                0x0f, 0x05                                // syscall
+            };
+            GLANG_ASSERT_LOG(gArr_cat_b(ctx->bin, exitBytes, sizeof(exitBytes)) == 0, gLang_status_AllocErr);
+            break;
+
+        case OUT:
+            //TODO
+            break;
+
+        case POW:
+            //TODO
+            break;
         }
     }
     return gLang_status_OK;

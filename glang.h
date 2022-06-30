@@ -1,5 +1,6 @@
 #pragma once
 
+#include "constants.h"
 #include "commands.h"
 #include "varpool.h"
 #include "elf-gen.h"
@@ -29,15 +30,6 @@
     #include "gstack.h"
 #undef CHEAP_DEBUG
 #undef ELEM_PRINTF_FORM
-
-
-static const size_t MAX_LINE_LEN = 1000;
-static const size_t GLANG_MAX_LIT_LEN = 100;
-static const size_t GLANG_LEX_LIM = 1000;
-static const size_t GLANG_MAX_LABEL_CNT = 10000;
-static const size_t GLANG_MAX_BIN_LEN   = 1000000;
-
-static const double GLANG_EPS = 1e-3;
 
 static const size_t GLANG_START_OFFSET = CODE_OFFSET_ + LOAD_VIRT_ADDR_;
 
@@ -123,8 +115,6 @@ struct gLang_Node
     double value;
     size_t position;
 } typedef gLang_Node;
-
-static const char GLANG_DELIMS_LIST[] = " +-*/^(){};,<>=";
 
 typedef gLang_Node GTREE_TYPE;
 

@@ -1233,7 +1233,7 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
         PUSH_COMMAND(c);
 
         assert(i != 0);
-        for (size_t j = i - 1; j > 0; --j) {                    // 6 == number of args passed via registers
+        for (size_t j = i - 1; j > 0; --j) {
             if (inUse[j]) {
                 Command c = {};
                 c.opcode = POP;
@@ -1244,18 +1244,17 @@ static gLang_status gLang_compileExpr(gLang *ctx, size_t rootId, Var **res_out)
             }
         }
 
+        /*
         c.opcode = ADD;                                         // TODO recheck the convention; sub rsp with the same num at the end of each func
         c.first.reg = RSP;
         c.second.reg = REG_NONE_;
         c.second.offset = -1;
-        c.second.num = 8 * passedInMem;
+        c.second.num = -1;
+        */
 
         if ((*res_out)->temp)
             varPool_free(p, *res_out);
         *res_out = p->inReg + RAX;
-        /*
-        fprintf(out, "call func_%s;\n", node->funcName);
-        */
 
     } else if (node->mode == gLang_Node_mode_less || node->mode == gLang_Node_mode_great) {
         size_t siblingId = GLANG_NODE_BY_ID(childId)->sibling;
@@ -1421,6 +1420,11 @@ static gLang_status gLang_compileStmnt(gLang *ctx, size_t rootId)
         c.second.num = -1;
         PUSH_COMMAND(c);
 
+        c.opcode = MOV;
+        c.first.reg = RSP;
+        c.second.reg = RBP;
+        PUSH_COMMAND(c);
+
         c.opcode = POP;
         c.first.reg = RBP;
         PUSH_COMMAND(c);
@@ -1464,15 +1468,6 @@ static gLang_status gLang_getArgs(gLang *ctx, size_t siblingId, size_t num, size
         PUSH_COMMAND(c);
     }
     return gLang_status_OK;
-}
-
-size_t gLang_getFuncLabel(gLang *ctx, char *name)
-{
-    assert(ctx != NULL);
-    assert(ctx->labelCnt != -1);
-    assert(ctx->funcFixup != NULL);
-
-    //TODO
 }
 
 gLang_status gLang_compile(gLang *ctx)
@@ -1566,12 +1561,12 @@ gLang_status gLang_compile(gLang *ctx)
         c.second.reg = RSP;
         PUSH_COMMAND(c);
 
-        c.opcode = ADD;                     //TODO sub rsp with the number of inMem args
+        c.opcode = ADD;
         c.first.reg = RSP;
         c.second.reg = REG_NONE_;
         c.second.offset = -1;
         c.second.num = -1;
-        PUSH_COMMAND(c);                    //TODO don't forget to change offset after precompile finished couning it
+        PUSH_COMMAND(c);
 
         GLANG_IS_OK(gLang_compileBlk(ctx, blkId));
 
@@ -1646,7 +1641,7 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
         GLANG_THROW_ERR(gLang_status_AllocErr);
     }
 
-
+    size_t funcCnt = -1;
     for (size_t i = 0; i < ctx->commands->len; ++i, ++iter) {
         REGISTER_ f = iter->first.reg;
         REGISTER_ s = iter->second.reg;
@@ -1680,6 +1675,14 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
             }
         case ADD:
         case SUB:
+            if (iter->opcode != MOV && s == REG_NONE_ && iter->second.offset == -1) {
+                if (f == RSP && iter->second.num == -1) {
+                    assert(funcCnt != -1);
+                    iter->second.num = ctx->varTables[funcCnt]->inMemCnt * 8;
+                }
+                if (iter->second.num == 0)
+                    break;
+            }
         case CMP:
         case TEST:
             assert(f != REG_NONE_ && f < REG_CNT_);
@@ -1738,9 +1741,11 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
                 PUSH_BYTE(0xe0 | REG_CODE[f]);
             break;
 
+        case IMUL:
+            if (s == REG_NONE_ && iter->second.offset == -1 && iter->second.num == 1)
+                break;
         case CMOVL:
         case CMOVG:
-        case IMUL:
             assert(f != REG_NONE_ && f < REG_CNT_);
             if (s == REG_NONE_) {
                 assert(iter->second.offset == -1);
@@ -1791,6 +1796,8 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
         case IDIV:
             assert(f != REG_NONE_ && f < REG_CNT_);
+            if (s == REG_NONE_ && iter->second.offset == -1 && iter->second.num == 1)
+                break;
             if (REG_TYPE[f] == EXTENDED)
                 PUSH_BYTE(0x49);
             else if (REG_TYPE[f] == BASIC)
@@ -1803,6 +1810,8 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
         case LABLE:
             if (fixupRun) {
+                if (iter->name[0] != '\0')
+                    ++funcCnt;
                 if (iter->labelId == -1 && iter->name[0] != '\0') {
                     iter->labelId = gHT_find(ctx->funcFixup, iter->name);
                 }
@@ -1817,7 +1826,31 @@ gLang_status gLang_translate(gLang *ctx, bool fixupRun)
 
 gLang_status gLang_dumpBytes(gLang *ctx, FILE *out)
 {
-    //TODO
+    GLANG_CHECK_SELF_PTR(ctx);
+    GLANG_ASSERT_LOG(gPtrValid(out), gLang_status_BadPtr);
+    GLANG_ASSERT_LOG(gPtrValid(ctx->bin), gLang_status_NothingToDo);
+
+    GLANG_ASSERT_LOG(fwrite(ctx->bin->data, sizeof(uint8_t), ctx->bin->len, out) == ctx->bin->len, gLang_status_FileErr);
+
+    return gLang_status_OK;
+}
+
+gLang_status gLang_writeBin(gLang *ctx, FILE *out)
+{
+    GLANG_CHECK_SELF_PTR(ctx);
+    GLANG_ASSERT_LOG(gPtrValid(out), gLang_status_BadPtr);
+    GLANG_ASSERT_LOG(gPtrValid(ctx->bin), gLang_status_NothingToDo);
+
+    Elf64_Ehdr ehdr = elf_hdr_setup();
+    Elf64_Phdr phdr = progr_hdr_setup(ctx->bin->len);
+    GLANG_ASSERT_LOG(fwrite(&ehdr, sizeof(ehdr), 1, out) == 1, gLang_status_FileErr);
+    GLANG_ASSERT_LOG(fwrite(&phdr, sizeof(phdr), 1, out) == 1, gLang_status_FileErr);
+    const size_t offset_len = CODE_OFFSET_ - sizeof(ehdr) - sizeof(phdr);
+    uint8_t offset[offset_len] = {};
+    GLANG_ASSERT_LOG(fwrite(offset,  sizeof(uint8_t), offset_len,  out) == offset_len, gLang_status_FileErr);
+    GLANG_ASSERT_LOG(fwrite(ctx->bin->data, sizeof(uint8_t), ctx->bin->len, out) == ctx->bin->len, gLang_status_FileErr);
+
+    return gLang_status_OK;
 }
 
 

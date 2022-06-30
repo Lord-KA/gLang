@@ -28,14 +28,14 @@ int main(int argc, char **argv)
     if (outFileName != NULL) {
         out = fopen(outFileName, "w");
         if (out == NULL) {
-            fprintf(stderr, "Failed to open the file!\n");
+            fprintf(stderr, "Failed to open the out file!\n");
             return 1;
         }
     }
     if (inFileName != NULL) {
         in = fopen(inFileName, "r");
         if (in == NULL) {
-            fprintf(stderr, "Failed to open the file!\n");
+            fprintf(stderr, "Failed to open the in file!\n");
             return 1;
         }
     }
@@ -96,13 +96,13 @@ int main(int argc, char **argv)
         fclose(gvOut);
     #endif
 
+    gLang_translate(ctx, true);
+
     #ifdef EXTRA_VERBOSE
         gvOut = fopen("commandsDump.txt", "w");
         gLang_commandsDump(ctx, gvOut);
         fclose(gvOut);
     #endif
-
-    gLang_translate(ctx, true);
 
     #ifdef EXTRA_VERBOSE
         fprintf(stderr, "\n\nLabel fixups:\n");
@@ -117,6 +117,14 @@ int main(int argc, char **argv)
     #endif
 
     gLang_translate(ctx, false);
+
+    #ifdef EXTRA_VERBOSE
+        gvOut = fopen("prog.bin", "w");
+        gLang_dumpBytes(ctx, gvOut);
+        fclose(gvOut);
+    #endif
+
+    gLang_writeBin(ctx, out);
 
 finish:
     fclose(out);

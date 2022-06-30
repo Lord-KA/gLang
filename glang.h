@@ -362,4 +362,8 @@ gLang_status gLang_compile(gLang *ctx);
 
 gLang_status gLang_translate(gLang *ctx, bool fixupRun);
 
+gLang_status gLang_dumpBytes(gLang *ctx, FILE *out);
+
 gLang_status gLang_commandsDump(gLang *ctx, FILE *out);
+
+gLang_status gLang_writeBin(gLang *ctx, FILE *out);
